@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { signIn, signOut, useSession } from 'next-auth/react';
 import {
   Check,
   Copy,
   History,
+  LogOut,
   Loader2,
   Mic,
   Paperclip,
@@ -18,9 +20,6 @@ import {
   X,
 } from 'lucide-react';
 
-const SESSIONS_KEY = 'toshkentgpt.sessions.v1';
-const ACTIVE_KEY = 'toshkentgpt.activeId.v1';
-
 const SUGGESTIONS = [
   'Aka, ishlar qalay?',
   'Bugun nima qilsam boʻladi zerikmasdan?',
@@ -28,13 +27,39 @@ const SUGGESTIONS = [
   'Dasturlashni qayerdan boshlasam boʻladi?',
 ];
 
+// --- Foydalanuvchiga xos localStorage kalitlari ---
+function storageKey(base, email) {
+  const safe = (email || 'mehmon').replace(/[^a-zA-Z0-9]/g, '_');
+  return `${base}.${safe}`;
+}
+
+function loadJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveJSON(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Vaqt (Date) qo'yilmagan holatda — server va mijoz birinchi renderda bir xil HTML
 // chiqarishi uchun (aks holda "hydration mismatch" xatosi chiqadi).
-function blankWelcome() {
+function blankWelcome(name) {
   return {
     id: 'welcome',
     role: 'assistant',
-    content: 'Nima gap, jigar? Men ToshkentGPT — savol ber, rasm/fayl tashla yoki shunchaki salomlash 👋',
+    content: name
+      ? `Nima gap, ${name} jigar? Men ToshkentGPT — savol ber, rasm/fayl tashla yoki shunchaki salomlash 👋`
+      : 'Nima gap, jigar? Men ToshkentGPT — savol ber, rasm/fayl tashla yoki shunchaki salomlash 👋',
     time: null,
   };
 }
@@ -55,33 +80,14 @@ function newSession() {
 }
 
 // Faqat mijoz tomonida (useEffect/handler ichida) chaqiriladigan versiya — haqiqiy vaqt bilan.
-function freshSession() {
+function freshSession(name) {
   return {
     id: crypto.randomUUID(),
     title: 'Yangi suhbat',
-    messages: [stampNow(blankWelcome())],
+    messages: [stampNow(blankWelcome(name))],
     lastInteractionId: null,
     updatedAt: new Date().toISOString(),
   };
-}
-
-function loadSessions() {
-  try {
-    const raw = localStorage.getItem(SESSIONS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveSessions(sessions) {
-  try {
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function sessionTitle(messages) {
@@ -126,9 +132,84 @@ function fileToText(file) {
   });
 }
 
-export default function ToshkentGPT() {
+// ============================================================
+// Kirish darvozasi — avval Google orqali autentifikatsiyani tekshiradi.
+// ============================================================
+export default function ToshkentGPTGate() {
+  const { data: authData, status } = useSession();
+
+  if (status === 'loading') {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-[#0D0F14]">
+        <img src="/icons/logo-header.png" alt="ToshkentGPT" className="tg-splash-logo h-16 w-16" />
+      </div>
+    );
+  }
+
+  if (status !== 'authenticated') {
+    return <SignInScreen />;
+  }
+
+  return <ToshkentGPT user={authData.user} />;
+}
+
+function SignInScreen() {
+  return (
+    <div className="relative flex h-dvh flex-col items-center justify-center overflow-hidden bg-[#0D0F14] px-6 text-center">
+      <GirihPattern />
+      <div className="relative z-10 flex flex-col items-center">
+        <img src="/icons/logo-header.png" alt="ToshkentGPT" className="tg-splash-logo h-20 w-20" />
+        <h1
+          className="mt-5 text-2xl font-extrabold tracking-tight text-gray-100"
+          style={{
+            fontFamily: 'var(--font-display)',
+            backgroundImage: 'linear-gradient(90deg, #F3EEE2, #E4A93B)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+          }}
+        >
+          ToshkentGPT'ga xush kelibsiz
+        </h1>
+        <p className="mt-2 max-w-xs text-sm text-gray-500">
+          Davom etish uchun Google hisobing bilan kir — suhbatlaring shu hisobga saqlanadi.
+        </p>
+
+        <button
+          onClick={() => signIn('google')}
+          className="mt-8 flex items-center gap-3 rounded-full bg-white px-6 py-3 text-sm font-semibold text-gray-900 shadow-lg transition hover:bg-gray-100"
+        >
+          <GoogleGlyph />
+          Google bilan kirish
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GoogleGlyph() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 48 48">
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l5.7-5.7C34.6 6 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z" />
+      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.8 1.1 8 3l5.7-5.7C34.6 6 29.6 4 24 4 16.3 4 9.6 8.3 6.3 14.7z" />
+      <path fill="#4CAF50" d="M24 44c5.5 0 10.4-1.9 14.1-5.1l-6.5-5.5C29.5 35.1 26.9 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.2 4.2-4.1 5.5l6.5 5.5C40.9 36.6 44 30.9 44 24c0-1.3-.1-2.7-.4-3.5z" />
+    </svg>
+  );
+}
+
+// ============================================================
+// Asosiy chat ilovasi — foydalanuvchi tasdiqlangandan keyingina ishga tushadi.
+// ============================================================
+function ToshkentGPT({ user }) {
+  const userEmail = user?.email || null;
+  const SESSIONS_KEY = storageKey('toshkentgpt.sessions.v1', userEmail);
+  const ACTIVE_KEY = storageKey('toshkentgpt.activeId.v1', userEmail);
+  const ALIVE_KEY = storageKey('toshkentgpt.alive', userEmail);
+  const PROFILE_KEY = storageKey('toshkentgpt.profile.v1', userEmail);
+
   const [session, setSession] = useState(newSession);
   const [sessions, setSessions] = useState([]);
+  const [profile, setProfile] = useState({});
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorBanner, setErrorBanner] = useState(null);
@@ -139,6 +220,7 @@ export default function ToshkentGPT() {
   const [speakingId, setSpeakingId] = useState(null);
   const [attachment, setAttachment] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [hydrated, setHydrated] = useState(false);
 
@@ -147,26 +229,37 @@ export default function ToshkentGPT() {
   const recognitionRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // --- Ilova birinchi ochilganda: saqlangan suhbatlarni tiklash (faqat mijozda) ---
+  // --- Ilova ochilganda: profil + suhbatlarni tiklash ---
+  // Agar bu shunchaki sahifa yangilanishi bo'lsa (F5), oxirgi suhbat davom etadi.
+  // Agar ilova haqiqatan yopib qayta ochilgan bo'lsa (yangi tab/oyna), yangi suhbat
+  // boshlanadi — eski suhbat esa "Tarix"da saqlanib qoladi.
   useEffect(() => {
-    const stored = loadSessions();
-    const activeId = localStorage.getItem(ACTIVE_KEY);
-    if (stored.length > 0) {
+    const storedProfile = loadJSON(PROFILE_KEY, {});
+    setProfile(storedProfile);
+
+    const stored = loadJSON(SESSIONS_KEY, []);
+    const wasAlive = sessionStorage.getItem(ALIVE_KEY);
+    const firstName = storedProfile?.ism;
+
+    if (wasAlive && stored.length > 0) {
+      const activeId = localStorage.getItem(ACTIVE_KEY);
       setSessions(stored);
-      const active = stored.find((s) => s.id === activeId) || stored[0];
-      setSession(active);
+      setSession(stored.find((s) => s.id === activeId) || stored[0]);
     } else {
-      const fresh = freshSession();
-      setSessions([fresh]);
+      const fresh = freshSession(firstName);
+      const next = [fresh, ...stored];
+      setSessions(next);
       setSession(fresh);
-      saveSessions([fresh]);
+      saveJSON(SESSIONS_KEY, next);
       localStorage.setItem(ACTIVE_KEY, fresh.id);
     }
+    sessionStorage.setItem(ALIVE_KEY, '1');
     setHydrated(true);
 
-    const t = setTimeout(() => setShowSplash(false), 1600);
+    const t = setTimeout(() => setShowSplash(false), 1400);
     return () => clearTimeout(t);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userEmail]);
 
   // --- Har bir o'zgarishda joriy suhbatni saqlab boramiz ("istoriya") ---
   useEffect(() => {
@@ -175,10 +268,11 @@ export default function ToshkentGPT() {
       const next = prev.some((s) => s.id === session.id)
         ? prev.map((s) => (s.id === session.id ? session : s))
         : [session, ...prev];
-      saveSessions(next);
+      saveJSON(SESSIONS_KEY, next);
       return next;
     });
     localStorage.setItem(ACTIVE_KEY, session.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, hydrated]);
 
   useEffect(() => {
@@ -265,19 +359,29 @@ export default function ToshkentGPT() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: finalText, image: imagePayload, previousInteractionId }),
+        body: JSON.stringify({ text: finalText, image: imagePayload, previousInteractionId, profile }),
       });
 
-      if (!res.ok) throw new Error(`Server xatosi: ${res.status}`);
+      const data = await res.json().catch(() => null);
 
-      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.response || `Server xatosi: ${res.status}`);
+      }
+
       addMessage('assistant', data.response ?? 'Javob topilmadi.');
       if (data.interactionId) {
         setSession((prev) => ({ ...prev, lastInteractionId: data.interactionId }));
       }
+      if (data.facts && Object.keys(data.facts).length) {
+        setProfile((prev) => {
+          const next = { ...prev, ...data.facts };
+          saveJSON(PROFILE_KEY, next);
+          return next;
+        });
+      }
     } catch (err) {
       console.error(err);
-      setErrorBanner('Serverga ulanishda xatolik yuz berdi. .env.local dagi API kalitni tekshiring.');
+      setErrorBanner(err.message || 'Serverga ulanishda xatolik yuz berdi.');
     } finally {
       setIsLoading(false);
     }
@@ -292,7 +396,7 @@ export default function ToshkentGPT() {
 
   function handleNewChat() {
     window.speechSynthesis?.cancel();
-    const fresh = freshSession();
+    const fresh = freshSession(profile?.ism);
     setSession(fresh);
     setErrorBanner(null);
     setInput('');
@@ -310,11 +414,11 @@ export default function ToshkentGPT() {
     e.stopPropagation();
     setSessions((prev) => {
       const next = prev.filter((s) => s.id !== id);
-      saveSessions(next);
+      saveJSON(SESSIONS_KEY, next);
       return next;
     });
     if (session.id === id) {
-      setSession(freshSession());
+      setSession(freshSession(profile?.ism));
     }
   }
 
@@ -453,6 +557,31 @@ export default function ToshkentGPT() {
             <Plus size={14} />
             <span className="hidden sm:inline">Yangi suhbat</span>
           </button>
+
+          <div className="relative">
+            <button onClick={() => setMenuOpen((v) => !v)} className="ml-1 flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-white/10">
+              {user?.image ? (
+                <img src={user.image} alt={user.name || ''} className="h-full w-full object-cover" />
+              ) : (
+                <User size={14} className="text-gray-400" />
+              )}
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
+                <div className="absolute right-0 z-30 mt-2 w-48 rounded-xl border border-white/10 bg-[#171A21] p-1 shadow-xl">
+                  <div className="truncate px-3 py-2 text-xs text-gray-500">{user?.email}</div>
+                  <button
+                    onClick={() => signOut()}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-gray-300 transition hover:bg-white/5"
+                  >
+                    <LogOut size={13} />
+                    Chiqish
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -476,7 +605,15 @@ export default function ToshkentGPT() {
                     isUser ? 'bg-white/10 text-gray-300' : 'border border-[#E4A93B]/25 bg-[#E4A93B]/10'
                   }`}
                 >
-                  {isUser ? <User size={15} /> : <img src="/icons/logo-header.png" alt="" className="h-full w-full" />}
+                  {isUser ? (
+                    user?.image ? (
+                      <img src={user.image} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <User size={15} />
+                    )
+                  ) : (
+                    <img src="/icons/logo-header.png" alt="" className="h-full w-full" />
+                  )}
                 </div>
 
                 <div className={`flex max-w-[80%] flex-col sm:max-w-[70%] ${isUser ? 'items-end' : 'items-start'}`}>

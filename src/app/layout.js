@@ -1,6 +1,7 @@
 import { Geist, Geist_Mono, Bricolage_Grotesque } from "next/font/google";
 import "./globals.css";
 import RegisterSW from "./register-sw";
+import AuthSessionProvider from "./session-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,9 +19,15 @@ const bricolage = Bricolage_Grotesque({
   weight: ["600", "700", "800"],
 });
 
+const SITE_URL = "https://toshkent-gpt.vercel.app";
+const TITLE = "ToshkentGPT — koʻcha tilida gaplashuvchi AI";
+const DESCRIPTION =
+  "Toshkentcha uslubda, samimiy va hazilkash gaplashadigan AI yordamchi. Telefonga ilova sifatida ham o'rnatiladi.";
+
 export const metadata = {
-  title: "ToshkentGPT — koʻcha tilida gaplashuvchi AI",
-  description: "Toshkentcha uslubda, samimiy va hazilkash gaplashadigan AI yordamchi. Telefonga ilova sifatida ham o'rnatiladi.",
+  metadataBase: new URL(SITE_URL),
+  title: TITLE,
+  description: DESCRIPTION,
   manifest: "/manifest.json",
   icons: {
     icon: "/favicon.ico",
@@ -30,6 +37,30 @@ export const metadata = {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "ToshkentGPT",
+  },
+  // Silka (link) birov bilan ulashilganda Telegram/WhatsApp/Instagram va h.k.
+  // ichida chiqadigan sarlavha, tavsif va rasm — shu yerdan olinadi.
+  openGraph: {
+    title: TITLE,
+    description: DESCRIPTION,
+    url: SITE_URL,
+    siteName: "ToshkentGPT",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "ToshkentGPT",
+      },
+    ],
+    locale: "uz_UZ",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: ["/og-image.png"],
   },
 };
 
@@ -47,7 +78,7 @@ export default function RootLayout({ children }) {
       className={`${geistSans.variable} ${geistMono.variable} ${bricolage.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        {children}
+        <AuthSessionProvider>{children}</AuthSessionProvider>
         <RegisterSW />
       </body>
     </html>
