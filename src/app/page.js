@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { signIn, signOut, useSession } from 'next-auth/react';
+import MarkdownMessage from './markdown-message';
 import {
   Check,
   Copy,
@@ -112,6 +113,19 @@ function formatRelative(iso) {
   if (hours < 24) return `${hours} soat oldin`;
   const days = Math.round(hours / 24);
   return `${days} kun oldin`;
+}
+
+// Ovozda o'qishdan oldin markdown belgilarini (**, #, kod bloklari va h.k.) tozalaymiz —
+// aks holda "yulduzcha yulduzcha" kabi belgilar ovozda eshitiladi.
+function stripMarkdown(text) {
+  return (text || '')
+    .replace(/```[\s\S]*?```/g, ' kod boʻlagi ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[*_~#>]+/g, '')
+    .replace(/\n{2,}/g, '. ')
+    .trim();
 }
 
 function fileToDataUrl(file) {
@@ -340,6 +354,13 @@ function ToshkentGPT({ user }) {
     setIsLoading(true);
     setErrorBanner(null);
 
+    // Bot javobi kelayotganda to'ldirib boriladigan bo'sh xabar — "so'z-so'z" effekti shundan.
+    const assistantId = crypto.randomUUID();
+    updateMessages((prev) => [
+      ...prev,
+      { id: assistantId, role: 'assistant', content: '', time: new Date().toISOString() },
+    ]);
+
     try {
       let finalText = text;
       let imagePayload;
@@ -362,26 +383,62 @@ function ToshkentGPT({ user }) {
         body: JSON.stringify({ text: finalText, image: imagePayload, previousInteractionId, profile }),
       });
 
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => null);
         throw new Error(data?.response || `Server xatosi: ${res.status}`);
       }
 
-      addMessage('assistant', data.response ?? 'Javob topilmadi.');
-      if (data.interactionId) {
-        setSession((prev) => ({ ...prev, lastInteractionId: data.interactionId }));
-      }
-      if (data.facts && Object.keys(data.facts).length) {
-        setProfile((prev) => {
-          const next = { ...prev, ...data.facts };
-          saveJSON(PROFILE_KEY, next);
-          return next;
-        });
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let streamedText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data:')) continue;
+          let evt;
+          try {
+            evt = JSON.parse(line.slice(5).trim());
+          } catch {
+            continue;
+          }
+
+          if (evt.type === 'chunk') {
+            streamedText += evt.text;
+            const snapshot = streamedText;
+            updateMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: snapshot } : m)));
+          } else if (evt.type === 'done') {
+            const finalContent = evt.text;
+            updateMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, content: finalContent, time: new Date().toISOString() } : m))
+            );
+            if (evt.interactionId) {
+              setSession((prev) => ({ ...prev, lastInteractionId: evt.interactionId }));
+            }
+            if (evt.facts && Object.keys(evt.facts).length) {
+              setProfile((prev) => {
+                const next = { ...prev, ...evt.facts };
+                saveJSON(PROFILE_KEY, next);
+                return next;
+              });
+            }
+          } else if (evt.type === 'error') {
+            throw new Error(evt.message || 'Server xatosi');
+          }
+        }
       }
     } catch (err) {
       console.error(err);
       setErrorBanner(err.message || 'Serverga ulanishda xatolik yuz berdi.');
+      // Hech narsa kelmagan bo'lsa, bo'sh xabarni olib tashlaymiz.
+      updateMessages((prev) => prev.filter((m) => !(m.id === assistantId && !m.content)));
     } finally {
       setIsLoading(false);
     }
@@ -445,7 +502,7 @@ function ToshkentGPT({ user }) {
       return;
     }
     window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(msg.content);
+    const utter = new SpeechSynthesisUtterance(stripMarkdown(msg.content));
     utter.lang = 'uz-UZ';
     utter.onend = () => setSpeakingId(null);
     utter.onerror = () => setSpeakingId(null);
@@ -628,11 +685,23 @@ function ToshkentGPT({ user }) {
                     {msg.image?.dataUrl && (
                       <img src={msg.image.dataUrl} alt={msg.image.name || 'rasm'} className="max-h-64 w-full object-cover" />
                     )}
-                    {(msg.content || msg.fileNote) && (
-                      <div className="whitespace-pre-wrap break-words px-4 py-2.5">
-                        {msg.fileNote && <div className="mb-1 text-[12px] opacity-80">{msg.fileNote}</div>}
-                        {msg.content}
+                    {!isUser && !msg.content && isLoading && msg.id === session.messages[session.messages.length - 1]?.id ? (
+                      <div className="flex items-center gap-1 px-4 py-3.5">
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#E4A93B] [animation-delay:-0.3s]" />
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#E4A93B] [animation-delay:-0.15s]" />
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#E4A93B]" />
                       </div>
+                    ) : (
+                      (msg.content || msg.fileNote) && (
+                        <div className="break-words px-4 py-2.5">
+                          {msg.fileNote && <div className="mb-1 text-[12px] opacity-80">{msg.fileNote}</div>}
+                          {isUser ? (
+                            <div className="whitespace-pre-wrap">{msg.content}</div>
+                          ) : (
+                            <MarkdownMessage content={msg.content} />
+                          )}
+                        </div>
+                      )
                     )}
                   </div>
 
@@ -677,19 +746,6 @@ function ToshkentGPT({ user }) {
                   {s}
                 </button>
               ))}
-            </div>
-          )}
-
-          {isLoading && (
-            <div className="flex items-start gap-3">
-              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#E4A93B]/25 bg-[#E4A93B]/10">
-                <img src="/icons/logo-header.png" alt="" className="h-full w-full" />
-              </div>
-              <div className="flex items-center gap-1 rounded-2xl rounded-tl-sm border border-[#E4A93B]/10 bg-[#171A21] px-4 py-3">
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#E4A93B] [animation-delay:-0.3s]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#E4A93B] [animation-delay:-0.15s]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#E4A93B]" />
-              </div>
             </div>
           )}
 
