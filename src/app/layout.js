@@ -75,9 +75,18 @@ export default function RootLayout({ children }) {
   return (
     <html
       lang="uz"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} ${bricolage.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <script
+          // Sahifa chizilishidan oldin saqlangan mavzuni qo'yib qo'yamiz —
+          // aks holda bir lahza noto'g'ri rang ko'rinib (FOUC), keyin almashadi.
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{document.documentElement.setAttribute('data-theme', localStorage.getItem('tg-theme') || 'dark')}catch(e){}",
+          }}
+        />
         <AuthSessionProvider>{children}</AuthSessionProvider>
         <RegisterSW />
       </body>

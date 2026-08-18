@@ -1,4 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
+import { auth } from '@/auth';
+import { getUserState, resolveEffectivePlan, getUsageWindow, recordUsage, saveUserState } from '../_lib/user-plan';
 
 // Uzun javoblar Vercel'ning standart vaqt chegarasida kesilib qolmasligi uchun.
 export const maxDuration = 60;
@@ -6,7 +8,17 @@ export const maxDuration = 60;
 // Gemini API kaliti va model nomi FAQAT .env.local fayldan o'qiladi — kodga yozilmaydi,
 // shunda GitHub'ga push qilsang ham kaliting ochilib qolmaydi (.env* .gitignore'da).
 const API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+
+function modelForPlan(plan) {
+  // Har bir tarif uchun alohida model belgilanishi mumkin (masalan GEMINI_MODEL_MAX).
+  // Agar sozlanmagan bo'lsa, standart modelga tushadi — hech narsa buzilmaydi.
+  return (plan?.modelEnv && process.env[plan.modelEnv]) || DEFAULT_MODEL;
+}
+
+function formatTime(iso) {
+  return new Date(iso).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' });
+}
 
 const BASE_STYLE = `Sen haqiqiy toshkentlik yigitsan. Isming - ToshkentGPT. Foydalanuvchi bilan 'jigar', 'brat', 'chotki', 'qalay' kabi so'zlarni ishlatib, samimiy va hazil-mutoyiba bilan gaplashasan. Juda rasmiy bo'lma, xuddi yaqin o'rtog'ing bilan choyxonada suhbatlashayotgandek erkin, sodda va qisqa javob ber. Agar rasm yoki fayl yuborilsa, uning mazmuni haqida ham shu uslubda gapirib ber. Kod yozishing kerak bo'lsa, har doim markdown kod bloklaridan (uch qiyshiq chiziq bilan) foydalan.`;
 
@@ -52,6 +64,55 @@ export async function POST(req) {
     );
   }
 
+  // Foydalanuvchini SERVER TOMONDA aniqlaymiz (session orqali) — mijoz (brauzer)
+  // tomonidan yuborilgan email'ga ishonib bo'lmaydi, aks holda limitni chetlab o'tish oson bo'lardi.
+  const session = await auth();
+  const email = session?.user?.email || null;
+
+  let effectivePlan = { plan: null, mode: 'active' };
+  let userState = null;
+  // "trial" rejimida cooldownHours bor (aylanma oyna), "active"da yo'q (kalendar kuni).
+  let usageCooldownHours;
+  let usageLimit;
+
+  if (email) {
+    userState = await getUserState(email);
+    effectivePlan = resolveEffectivePlan(userState);
+    const { plan, mode } = effectivePlan;
+
+    if (mode === 'downgraded') {
+      const unlockLabel = effectivePlan.unlockAt
+        ? ` Soat ${formatTime(effectivePlan.unlockAt)}da yana bepul sinab ko'rishingiz mumkin, yoki hoziroq sotib oling.`
+        : '';
+      return Response.json(
+        {
+          response: `${effectivePlan.wantedPlan?.name || 'Tarifingiz'} vaqti tugadi.${unlockLabel}`,
+          requiresUpgrade: true,
+          suggestedPlan: effectivePlan.wantedPlan?.id || 'pro',
+          unlockAt: effectivePlan.unlockAt || null,
+        },
+        { status: 402 }
+      );
+    }
+
+    usageCooldownHours = mode === 'trial' ? plan.trial?.cooldownHours : undefined;
+    usageLimit = mode === 'trial' ? plan.trial.limit : plan.dailyLimit;
+    const win = getUsageWindow(userState, usageCooldownHours);
+
+    if (win.count >= usageLimit) {
+      const unlockLabel = win.unlockAt ? ` Soat ${formatTime(win.unlockAt)}da yana ishlata olasiz.` : ' Ertaga davom eting yoki tarifni oshiring.';
+      return Response.json(
+        {
+          response: `"${plan.name}"${mode === 'trial' ? ' bepul sinov' : ''} limitiga (${usageLimit} xabar) yetdingiz.${unlockLabel}`,
+          requiresUpgrade: plan.id !== 'promax',
+          suggestedPlan: plan.id === 'lite' ? 'pro' : plan.id === 'pro' ? 'max' : 'promax',
+          unlockAt: win.unlockAt || null,
+        },
+        { status: 402 }
+      );
+    }
+  }
+
   const ai = new GoogleGenAI({ apiKey: API_KEY });
 
   const input = image?.data
@@ -62,6 +123,7 @@ export async function POST(req) {
     : text;
 
   const systemInstruction = buildSystemInstruction(profile);
+  const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
 
   async function openStream(prevId) {
     return ai.interactions.create({
@@ -105,7 +167,9 @@ export async function POST(req) {
         }
 
         for await (const event of stream) {
-          if (event?.id) interactionId = event.id;
+          // MUHIM: Interactions API'da chat ID'si event.interaction.id ichida keladi,
+          // event.id emas — shu xato tufayli suhbat tarixi hech qachon davom etmagan.
+          if (event?.interaction?.id) interactionId = event.interaction.id;
           if (event?.event_type === 'step.delta' && event?.delta?.type === 'text') {
             fullText += event.delta.text;
             const safeLen = Math.max(0, fullText.length - SAFE_TAIL);
@@ -117,11 +181,31 @@ export async function POST(req) {
         }
 
         const { facts, cleanText } = extractFacts(fullText);
+
+        let planPayload;
+        if (email && userState && effectivePlan.plan) {
+          recordUsage(userState, usageCooldownHours);
+          // Xabar hisobini saqlashda xato bo'lsa ham, foydalanuvchiga javobni to'sib qo'ymaymiz.
+          saveUserState(email, userState).catch((err) => console.error('Limit saqlashda xato:', err));
+
+          const win = getUsageWindow(userState, usageCooldownHours);
+          planPayload = {
+            id: effectivePlan.plan.id,
+            name: effectivePlan.plan.name,
+            mode: effectivePlan.mode,
+            limit: usageLimit,
+            used: win.count,
+            remaining: Math.max(0, usageLimit - win.count),
+            resetAt: win.unlockAt || null,
+          };
+        }
+
         send({
           type: 'done',
           text: cleanText || 'Javob kelmadi.',
           interactionId,
           facts: Object.keys(facts).length ? facts : undefined,
+          plan: planPayload,
         });
       } catch (error) {
         console.error('API Error:', error);

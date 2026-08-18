@@ -32,10 +32,10 @@ function CodeBlock({ lang, code }) {
   }
 
   return (
-    <div className="my-2 overflow-hidden rounded-xl border border-white/10 bg-[#0D0F14]">
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-1.5">
-        <span className="text-[10.5px] uppercase tracking-wide text-gray-500">{lang || 'kod'}</span>
-        <button onClick={copy} className="text-gray-500 transition-colors hover:text-gray-200">
+    <div className="my-2 overflow-hidden rounded-xl border border-[var(--tg-border)] bg-[var(--tg-bg)]">
+      <div className="flex items-center justify-between border-b border-[var(--tg-border)] px-3 py-1.5">
+        <span className="text-[10.5px] uppercase tracking-wide text-[var(--tg-text-3)]">{lang || 'kod'}</span>
+        <button onClick={copy} className="text-[var(--tg-text-3)] transition-colors hover:text-[var(--tg-text-1)]">
           {copied ? <Check size={12} /> : <Copy size={12} />}
         </button>
       </div>
@@ -59,7 +59,7 @@ export default function MarkdownMessage({ content }) {
         },
         code({ className, children }) {
           return (
-            <code className="rounded bg-white/10 px-1.5 py-0.5 text-[13px]">
+            <code className="rounded bg-[var(--tg-hover-strong)] px-1.5 py-0.5 text-[13px]">
               {children}
             </code>
           );
@@ -96,10 +96,10 @@ export default function MarkdownMessage({ content }) {
           );
         },
         th({ children }) {
-          return <th className="border border-white/10 px-2 py-1 text-left">{children}</th>;
+          return <th className="border border-[var(--tg-border)] px-2 py-1 text-left">{children}</th>;
         },
         td({ children }) {
-          return <td className="border border-white/10 px-2 py-1">{children}</td>;
+          return <td className="border border-[var(--tg-border)] px-2 py-1">{children}</td>;
         },
       }}
     >

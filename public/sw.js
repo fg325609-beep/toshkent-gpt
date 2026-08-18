@@ -1,4 +1,8 @@
-const CACHE_NAME = "toshkentgpt-v1";
+// v2: cache-first edi — shu sabab kod deploy qilingandan keyin ham foydalanuvchilar
+// ba'zan ESKI (buzilgan) versiyani ko'rar edi, chunki cache HAR DOIM networkdan oldin
+// qaytardi. Endi NETWORK-FIRST: internet bor bo'lsa har doim eng yangi versiya, faqat
+// oflayn holatda cache'ga tushadi. Versiya raqami oshganda eski cache avtomatik o'chadi.
+const CACHE_NAME = "toshkentgpt-v2";
 const PRECACHE_URLS = [
   "/",
   "/manifest.json",
@@ -31,17 +35,14 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(request)
+      .then((response) => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(request))
   );
 });
