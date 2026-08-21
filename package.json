@@ -6,10 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "export:profiles": "node scripts/export-profiles.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.16.0",
+    "@upstash/redis": "^1.38.2",
     "lucide-react": "^1.30.0",
     "next": "16.3.0",
     "next-auth": "5.0.0-beta.32",

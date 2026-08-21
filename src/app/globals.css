@@ -1,5 +1,66 @@
 @import "tailwindcss";
 
+/* ===== ToshkentGPT theme variables (dark/light) ===== */
+:root,
+[data-theme='dark'] {
+  --tg-bg: #0D0F14;
+  --tg-surface: #171A21;
+  --tg-surface-2: #14161C;
+  --tg-border: rgba(255, 255, 255, 0.1);
+  --tg-border-strong: rgba(255, 255, 255, 0.2);
+  --tg-hover: rgba(255, 255, 255, 0.05);
+  --tg-hover-strong: rgba(255, 255, 255, 0.1);
+  --tg-overlay: rgba(0, 0, 0, 0.5);
+  --tg-text-1: #F3F4F6;
+  --tg-text-2: #D1D5DB;
+  --tg-text-3: #9CA3AF;
+  --tg-text-4: #6B7280;
+  --tg-logo-grad-start: #F3EEE2;
+  --tg-logo-grad-end: #E4A93B;
+}
+
+[data-theme='light'] {
+  --tg-bg: #F7F5EF;
+  --tg-surface: #FFFFFF;
+  --tg-surface-2: #F0EDE6;
+  --tg-border: rgba(0, 0, 0, 0.08);
+  --tg-border-strong: rgba(0, 0, 0, 0.15);
+  --tg-hover: rgba(0, 0, 0, 0.04);
+  --tg-hover-strong: rgba(0, 0, 0, 0.08);
+  --tg-overlay: rgba(0, 0, 0, 0.3);
+  --tg-text-1: #14161C;
+  --tg-text-2: #3F4550;
+  --tg-text-3: #6B7280;
+  --tg-text-4: #9CA3AF;
+  /* Yorug' fonda "ToshkentGPT" nomi krem rangdan boshlansa deyarli
+     ko'rinmas edi (oq fonda oq-krem) — endi to'q rangdan boshlanadi. */
+  --tg-logo-grad-start: #3A2E14;
+  --tg-logo-grad-end: #C98A1F;
+}
+
+body {
+  background: var(--tg-bg);
+  color: var(--tg-text-1);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Butun ilova ortidagi yumshoq, brend rangidagi (teal + oltin) nur — orqa fonni
+   tekis bir rangdan chiroyliroq qiladi, lekin matn o'qilishiga xalaqit bermaydi. */
+.tg-ambient-bg {
+  background:
+    radial-gradient(circle at 12% -8%, rgba(47, 158, 150, 0.20), transparent 42%),
+    radial-gradient(circle at 100% 6%, rgba(228, 169, 59, 0.16), transparent 38%),
+    radial-gradient(circle at 45% 115%, rgba(47, 158, 150, 0.12), transparent 48%);
+  transition: background-color 0.2s ease;
+}
+
+[data-theme='light'] .tg-ambient-bg {
+  background:
+    radial-gradient(circle at 12% -8%, rgba(47, 158, 150, 0.14), transparent 42%),
+    radial-gradient(circle at 100% 6%, rgba(228, 169, 59, 0.16), transparent 38%),
+    radial-gradient(circle at 45% 115%, rgba(47, 158, 150, 0.08), transparent 48%);
+}
+
 @keyframes tg-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -37,10 +98,39 @@
   animation: tg-splash-out 0.5s ease 1.1s forwards;
 }
 
+@keyframes tg-sidebar-in {
+  from { transform: translateX(-12px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.tg-sidebar-in {
+  animation: tg-sidebar-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes tg-pop-in {
+  from { transform: scale(0.95) translateY(4px); opacity: 0; }
+  to { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.tg-pop-in {
+  animation: tg-pop-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 .tg-scroll::-webkit-scrollbar {
   width: 6px;
 }
 .tg-scroll::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.12);
   border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-logo-ring,
+  .tg-logo-pulse,
+  .tg-splash-logo,
+  .tg-splash-overlay,
+  .tg-sidebar-in,
+  .tg-pop-in {
+    animation: none !important;
+  }
 }

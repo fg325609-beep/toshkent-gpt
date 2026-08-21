@@ -36,6 +36,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# foydalanuvchi ma'lumotlari eksporti (npm run export:profiles) — shaxsiy
+# ma'lumot, hech qachon git'ga tushmasligi kerak
+/data
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
