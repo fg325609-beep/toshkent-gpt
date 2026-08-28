@@ -51,7 +51,7 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-[var(--tg-bg)] px-4 py-8 text-[var(--tg-text-1)]">
       <div className="mx-auto max-w-lg">
-        <h1 className="mb-6 text-lg font-bold">To'lov so'rovlari</h1>
+        <h1 className="mb-6 text-lg font-bold">Toʻlov soʻrovlari</h1>
 
         {status === 'unauthenticated' && (
           <button
@@ -71,7 +71,7 @@ export default function AdminPage() {
         {error && <p className="text-sm text-red-400">{error}</p>}
 
         {!loading && !error && status === 'authenticated' && requests.length === 0 && (
-          <p className="text-sm text-[var(--tg-text-3)]">Hozircha kutilayotgan so'rov yo'q.</p>
+          <p className="text-sm text-[var(--tg-text-3)]">Hozircha kutilayotgan soʻrov yoʻq.</p>
         )}
 
         <ul className="space-y-2">

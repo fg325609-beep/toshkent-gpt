@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { PLANS } from '@/app/plans';
@@ -17,8 +18,6 @@ export default function Header({
   onCloseAvatarMenu,
   onOpenHistory,
   onNewChat,
-  onOpenFeedback,
-  onOpenPlans,
 }) {
   return (
     <header className="relative z-10 flex items-center justify-between border-b border-[var(--tg-border)] bg-[var(--tg-bg)]/90 px-4 py-3 backdrop-blur sm:px-6">
@@ -102,28 +101,20 @@ export default function Header({
                   {theme === 'dark' ? 'Yorugʻ rejim' : 'Qorongʻu rejim'}
                 </button>
                 
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenFeedback?.();
-                    onCloseNavMenu?.();
-                  }}
+                <Link
+                  href="/shikoyat"
+                  onClick={onCloseNavMenu}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
                 >
                   <MessageSquare size={14} />
                   Shikoyat va takliflar
-                </button>
-                
+                </Link>
+
                 <div className="my-1 h-px bg-[var(--tg-border)]" />
-                
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenPlans?.();
-                    onCloseNavMenu?.();
-                  }}
+
+                <Link
+                  href="/tariflar"
+                  onClick={onCloseNavMenu}
                   className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
                 >
                   <span className="flex items-center gap-2">
@@ -133,7 +124,7 @@ export default function Header({
                   <span className="rounded-full border border-[var(--tg-border)] px-1.5 py-0.5 text-[10px]">
                     {PLANS[planId || 'lite']?.name || 'Lite'}
                   </span>
-                </button>
+                </Link>
               </div>
             </>
           )}

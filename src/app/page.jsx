@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 
 import { PLANS } from './plans';
 import { storageKey, loadJSON, saveJSON } from '@/lib/storage';
@@ -17,7 +18,6 @@ import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import ChatMessages from '@/components/ChatMessages';
 import ChatInput from '@/components/ChatInput';
-import FeedbackModal from '@/components/FeedbackModal';
 import PlansModal from '@/components/PlansModal';
 import { useTheme } from './use-theme';
 
@@ -50,6 +50,7 @@ export default function ToshkentGPTGate() {
 // src/components/ papkasidagi tegishli faylida ko'rish mumkin.
 // ============================================================
 function ToshkentGPT({ user }) {
+  const router = useRouter();
   const userEmail = user?.email || null;
   const SESSIONS_KEY = storageKey('toshkentgpt.sessions.v1', userEmail);
   const ACTIVE_KEY = storageKey('toshkentgpt.activeId.v1', userEmail);
@@ -71,9 +72,6 @@ function ToshkentGPT({ user }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [navMenuOpen, setNavMenuOpen] = useState(false);
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedbackMsg, setFeedbackMsg] = useState('');
-  const [feedbackStatus, setFeedbackStatus] = useState('idle'); // idle | sending | sent | error
 
   // --- Ro'yxatdan o'tishdagi bosqichli tanishuv (ism-familiya so'rash) ---
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -81,13 +79,19 @@ function ToshkentGPT({ user }) {
   const [obIsm, setObIsm] = useState('');
   const [obFamiliya, setObFamiliya] = useState('');
 
+  // Tarif belgisi (Sozlamalar menyusidagi "Lite"/"Pro" kabi yozuv) uchun —
+  // /tariflar va /shikoyat endi alohida sahifalar, shu yerda faqat hozirgi
+  // tarifni bilib turish kifoya.
+  const [planInfo, setPlanInfo] = useState(null); // { id, name, mode, limit, used, remaining, resetAt }
+
+  // PlansModal — endi faqat chatda limitga/sinov muddatiga yetilganda ("interrupt"
+  // sifatida) ochiladi. Oddiy "Tariflar" havolasi esa alohida /tariflar sahifasiga olib boradi.
   const [plansOpen, setPlansOpen] = useState(false);
-  const [plansView, setPlansView] = useState('list'); // list | pay | trial-ended
+  const [plansView, setPlansView] = useState('list'); // list | trial-ended | pay
   const [paymentPlanId, setPaymentPlanId] = useState('pro');
   const [paymentStatus, setPaymentStatus] = useState('idle'); // idle | sending | sent | error
-  const [planInfo, setPlanInfo] = useState(null); // { id, name, mode, limit, used, remaining, resetAt }
-  const [trialEndInfo, setTrialEndInfo] = useState(null); // { planId, unlockAt }
   const [trialStarting, setTrialStarting] = useState(false);
+  const [trialEndInfo, setTrialEndInfo] = useState(null); // { planId, unlockAt }
 
   const [showSplash, setShowSplash] = useState(true);
   const [hydrated, setHydrated] = useState(false);
@@ -222,26 +226,6 @@ function ToshkentGPT({ user }) {
     const msg = { id: crypto.randomUUID(), role, content, time: new Date().toISOString(), ...extra };
     updateMessages((prev) => [...prev, msg]);
     return msg;
-  }
-
-  async function submitFeedback(e) {
-    e.preventDefault();
-    const text = feedbackMsg.trim();
-    if (!text || feedbackStatus === 'sending') return;
-
-    setFeedbackStatus('sending');
-    try {
-      const res = await fetch('/api/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, from: user?.email || null }),
-      });
-      if (!res.ok) throw new Error('Xato');
-      setFeedbackStatus('sent');
-      setFeedbackMsg('');
-    } catch {
-      setFeedbackStatus('error');
-    }
   }
 
   // Tanishuv oxirida (yoki o'tkazib yuborilganda) chaqiriladi — ismni profilga
@@ -640,11 +624,6 @@ function ToshkentGPT({ user }) {
         onCloseAvatarMenu={() => setMenuOpen(false)}
         onOpenHistory={() => setHistoryOpen(true)}
         onNewChat={handleNewChat}
-        onOpenFeedback={() => setFeedbackOpen(true)}
-        onOpenPlans={() => {
-          setPlansView('list');
-          setPlansOpen(true);
-        }}
       />
 
       {errorBanner && (
@@ -693,15 +672,6 @@ function ToshkentGPT({ user }) {
         onNewChat={handleNewChat}
         onOpenSession={openSession}
         onDeleteSession={deleteSession}
-      />
-
-      <FeedbackModal
-        open={feedbackOpen}
-        onClose={() => setFeedbackOpen(false)}
-        message={feedbackMsg}
-        onMessageChange={setFeedbackMsg}
-        status={feedbackStatus}
-        onSubmit={submitFeedback}
       />
 
       <PlansModal

@@ -1,10 +1,19 @@
 // Shikoyat va takliflar formasidan kelgan xabarni Telegram botga yuboradi.
 // TELEGRAM_BOT_TOKEN va TELEGRAM_CHAT_ID FAQAT .env.local (mahalliy) va
 // Vercel Environment Variables (production/preview) orqali beriladi — kodga yozilmaydi.
+import { auth } from '@/auth';
+
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 export async function POST(req) {
+  // Faqat tizimga kirgan foydalanuvchilar yubora oladi — aks holda botni
+  // to'g'ridan-to'g'ri so'rov yuborib spam bilan to'ldirish mumkin bo'lardi.
+  const session = await auth();
+  if (!session?.user?.email) {
+    return Response.json({ error: 'Avval tizimga kiring' }, { status: 401 });
+  }
+
   let body;
   try {
     body = await req.json();
@@ -13,7 +22,7 @@ export async function POST(req) {
   }
 
   const message = (body?.message || '').trim();
-  const from = body?.from || null;
+  const from = session.user.email;
 
   if (!message) {
     return Response.json({ error: "Xabar boʻsh boʻlishi mumkin emas" }, { status: 400 });

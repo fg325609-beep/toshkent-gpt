@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { auth } from '@/auth';
 import { getUserState, resolveEffectivePlan, getUsageWindow, recordUsage, saveUserState } from '../_lib/user-plan';
-import { mergeUserProfile } from '../_lib/user-profile';
+import { getUserProfile, mergeUserProfile } from '../_lib/user-profile';
 
 // Uzun javoblar Vercel'ning standart vaqt chegarasida kesilib qolmasligi uchun.
 export const maxDuration = 60;
@@ -52,10 +52,13 @@ function extractFacts(rawText) {
 }
 
 export async function POST(req) {
-  const { text, image, previousInteractionId, profile } = await req.json();
+  const { text, image, previousInteractionId, profile: clientProfile } = await req.json();
 
   if (!text && !image) {
     return Response.json({ response: 'Matn yoki rasm kiritilmadi!' }, { status: 400 });
+  }
+  if (text && text.length > 8000) {
+    return Response.json({ response: 'Xabar juda uzun (8000 belgidan oshmasin).' }, { status: 400 });
   }
 
   if (!API_KEY) {
@@ -67,8 +70,18 @@ export async function POST(req) {
 
   // Foydalanuvchini SERVER TOMONDA aniqlaymiz (session orqali) — mijoz (brauzer)
   // tomonidan yuborilgan email'ga ishonib bo'lmaydi, aks holda limitni chetlab o'tish oson bo'lardi.
+  // Kirish MAJBURIY: aks holda hisobsiz odam ham cheksiz Gemini API sarflay olardi.
   const session = await auth();
   const email = session?.user?.email || null;
+  if (!email) {
+    return Response.json({ response: 'Avval Google orqali tizimga kiring.' }, { status: 401 });
+  }
+
+  // Profilni SERVERDAGI (Redis) nusxadan olamiz, mijoz yuborgan qiymatga ishonmaymiz —
+  // aks holda birov so'rovni o'zgartirib, AI'ning tizim ko'rsatmasiga xohlagan matnini
+  // ("prompt injection") kiritib yuborishi mumkin edi. Redis bo'lmasa/bo'sh bo'lsa,
+  // mijoz yuborgan profilga (faqat ko'rsatish maqsadida, zararsiz fallback sifatida) tushamiz.
+  const profile = (await getUserProfile(email).catch(() => null)) || clientProfile || {};
 
   let effectivePlan = { plan: null, mode: 'active' };
   let userState = null;

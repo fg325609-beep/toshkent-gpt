@@ -22,11 +22,18 @@ export async function getUserState(email) {
   const redis = getRedis();
   if (!redis || !email) return defaultState();
 
-  const raw = await redis.get(userKey(email));
-  if (!raw) return defaultState();
+  // Redis noto'g'ri sozlangan yoki vaqtincha ulanmasa ham,
+  // /api/chat butunlay 500 bilan qulab tushmasin.
+  try {
+    const raw = await redis.get(userKey(email));
+    if (!raw) return defaultState();
 
-  const state = typeof raw === 'string' ? JSON.parse(raw) : raw;
-  return { ...defaultState(), ...state, usage: { ...defaultState().usage, ...(state.usage || {}) } };
+    const state = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return { ...defaultState(), ...state, usage: { ...defaultState().usage, ...(state.usage || {}) } };
+  } catch (err) {
+    console.error("Redis'dan foydalanuvchi holatini o'qishda xato:", err);
+    return defaultState();
+  }
 }
 
 export async function saveUserState(email, state) {
