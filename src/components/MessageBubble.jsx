@@ -1,9 +1,9 @@
 'use client';
-
+ 
 import { User, Check, Copy, Volume2, VolumeX } from 'lucide-react';
 import MarkdownMessage from '@/app/markdown-message';
 import { formatTime } from '@/lib/format';
-
+ 
 // ============================================================
 // Bitta xabar "pufakchasi" — foydalanuvchi yoki AI tomonidan yozilgan.
 // Xabarlar ro'yxati (ChatMessages) har bir xabar uchun shuni chizadi.
@@ -20,7 +20,7 @@ export default function MessageBubble({
   onToggleSpeak,
 }) {
   const isUser = msg.role === 'user';
-
+ 
   return (
     <div className={`group flex items-start gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
       <div
@@ -38,7 +38,7 @@ export default function MessageBubble({
           <img src="/icons/logo-header.png" alt="" className="h-full w-full" />
         )}
       </div>
-
+ 
       <div className={`flex max-w-[80%] flex-col sm:max-w-[70%] ${isUser ? 'items-end' : 'items-start'}`}>
         <div
           className={`overflow-hidden rounded-2xl text-[14px] leading-relaxed ${
@@ -48,9 +48,12 @@ export default function MessageBubble({
           }`}
           style={isUser ? { background: 'linear-gradient(135deg, #E4A93B, #2F9E96)' } : undefined}
         >
-          {msg.image?.dataUrl && (
-            <img src={msg.image.dataUrl} alt={msg.image.name || 'rasm'} className="max-h-64 w-full object-cover" />
-          )}
+          {msg.image?.dataUrl &&
+            (isUser ? (
+              <img src={msg.image.dataUrl} alt={msg.image.name || 'rasm'} className="max-h-64 w-full object-cover" />
+            ) : (
+              <img src={msg.image.dataUrl} alt="AI tomonidan yaratilgan rasm" className="w-full rounded-t-2xl object-contain" />
+            ))}
           {!isUser && !msg.content && isLoading && isLastAssistant ? (
             <div className="flex items-center gap-1 px-4 py-3.5">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#E4A93B] [animation-delay:-0.3s]" />
@@ -70,7 +73,7 @@ export default function MessageBubble({
             )
           )}
         </div>
-
+ 
         <div className="mt-1 flex items-center gap-2 px-1">
           {msg.time && <span className="text-[11px] text-[var(--tg-text-4)]">{formatTime(msg.time)}</span>}
           <div className="flex items-center gap-1.5 opacity-60 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">

@@ -1,14 +1,14 @@
 'use client';
-
+ 
 import MessageBubble from './MessageBubble';
-
+ 
 const SUGGESTIONS = [
   'Aka, ishlar qalay?',
   'Bugun nima qilsam boʻladi zerikmasdan?',
   'Bitta kulgili gap ayt',
-  'Dasturlashni qayerdan boshlasam boʻladi?',
+  '/rasm gitara chalayotgan mushuk',
 ];
-
+ 
 // ============================================================
 // O'rtadagi aylanadigan (scroll) xabarlar maydoni: barcha xabarlar +
 // birinchi suhbatda ko'rinadigan tayyor savol takliflari.
@@ -27,7 +27,7 @@ export default function ChatMessages({
 }) {
   const showSuggestions = messages.length === 1;
   const lastMessageId = messages[messages.length - 1]?.id;
-
+ 
   return (
     <main className="relative z-10 flex-1 overflow-y-auto px-3 py-6 sm:px-6 tg-scroll">
       <div className="mx-auto flex max-w-3xl flex-col gap-5">
@@ -45,7 +45,7 @@ export default function ChatMessages({
             onToggleSpeak={onToggleSpeak}
           />
         ))}
-
+ 
         {showSuggestions && !isLoading && (
           <div className="ml-11 flex flex-wrap gap-2">
             {SUGGESTIONS.map((s) => (
@@ -59,7 +59,7 @@ export default function ChatMessages({
             ))}
           </div>
         )}
-
+ 
         <div ref={scrollAnchorRef} />
       </div>
     </main>

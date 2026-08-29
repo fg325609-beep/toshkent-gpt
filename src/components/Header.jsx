@@ -1,10 +1,37 @@
 'use client';
-
+ 
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User } from 'lucide-react';
+import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User, Info, Users } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { PLANS } from '@/app/plans';
-
+ 
+// Ochiq menyu tashqarisiga bosilganda uni yopadi. Avval bu "butun ekranni
+// qoplaydigan ko'rinmas parda" (fixed inset-0 overlay) orqali qilinardi, lekin
+// u ba'zan haqiqiy sichqoncha bosishini menyu ichidagi tugmalarga
+// yetkazmay, o'zi "yutib" yuborayotgan edi.
+//
+// MUHIM: bu yerda aynan 'click' hodisasi ishlatiladi, 'pointerdown' emas —
+// 'pointerdown' juda erta (sichqoncha tugmasi bosilgan zahoti) ishga
+// tushadi va menyuni ULGURMASDAN yopib qo'yishi mumkin edi, natijada
+// bosilgan tugmaning o'z vazifasi (mavzuni almashtirish, sahifaga o'tish)
+// hech qachon bajarilmay qolardi. 'click' esa bosib-qo'yib yuborish TO'LIQ
+// yakunlangandan keyin ishga tushadi — shu sabab avval ichkaridagi tugma
+// o'z ishini bajaradi, keyin kerak bo'lsa menyu yopiladi.
+function useCloseOnOutsideClick(open, onClose, ref) {
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) {
+        onClose?.();
+      }
+    }
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+}
+ 
 export default function Header({
   user,
   theme,
@@ -19,8 +46,14 @@ export default function Header({
   onOpenHistory,
   onNewChat,
 }) {
+  const navMenuRef = useRef(null);
+  const avatarMenuRef = useRef(null);
+ 
+  useCloseOnOutsideClick(navMenuOpen, onCloseNavMenu, navMenuRef);
+  useCloseOnOutsideClick(avatarMenuOpen, onCloseAvatarMenu, avatarMenuRef);
+ 
   return (
-    <header className="relative z-10 flex items-center justify-between border-b border-[var(--tg-border)] bg-[var(--tg-bg)]/90 px-4 py-3 backdrop-blur sm:px-6">
+    <header className="relative z-30 flex items-center justify-between border-b border-[var(--tg-border)] bg-[var(--tg-bg)]/90 px-4 py-3 backdrop-blur sm:px-6">
       <div className="flex items-center gap-2.5">
         <button
           onClick={onOpenHistory}
@@ -29,7 +62,7 @@ export default function Header({
         >
           <Menu size={17} />
         </button>
-
+ 
         <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center">
           <div
             className="tg-logo-ring absolute inset-0 rounded-full"
@@ -60,7 +93,7 @@ export default function Header({
           </p>
         </div>
       </div>
-
+ 
       <div className="flex items-center gap-1.5">
         <button
           onClick={onNewChat}
@@ -70,9 +103,9 @@ export default function Header({
           <Plus size={14} />
           <span className="hidden sm:inline">Yangi suhbat</span>
         </button>
-
+ 
         {/* Sozlamalar Menyusi */}
-        <div className="relative">
+        <div className="relative" ref={navMenuRef}>
           <button
             onClick={onToggleNavMenu}
             title="Sozlamalar"
@@ -80,58 +113,69 @@ export default function Header({
           >
             <Settings size={16} />
           </button>
-          
+ 
           {navMenuOpen && (
-            <>
-              {/* Overlay z-index pasaytirildi va pointer-events belgilandi */}
-              <div className="fixed inset-0 z-10" onClick={onCloseNavMenu} />
-              
-              {/* Dropdown z-index oshirildi */}
-              <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-1 shadow-xl">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onToggleTheme?.();
-                    onCloseNavMenu?.();
-                  }}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-                >
-                  {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-                  {theme === 'dark' ? 'Yorugʻ rejim' : 'Qorongʻu rejim'}
-                </button>
-                
-                <Link
-                  href="/shikoyat"
-                  onClick={onCloseNavMenu}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-                >
-                  <MessageSquare size={14} />
-                  Shikoyat va takliflar
-                </Link>
-
-                <div className="my-1 h-px bg-[var(--tg-border)]" />
-
-                <Link
-                  href="/tariflar"
-                  onClick={onCloseNavMenu}
-                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-                >
-                  <span className="flex items-center gap-2">
-                    <Sparkles size={14} />
-                    Tariflar
-                  </span>
-                  <span className="rounded-full border border-[var(--tg-border)] px-1.5 py-0.5 text-[10px]">
-                    {PLANS[planId || 'lite']?.name || 'Lite'}
-                  </span>
-                </Link>
-              </div>
-            </>
+            <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-1 shadow-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  onToggleTheme?.();
+                  onCloseNavMenu?.();
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
+              >
+                {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                {theme === 'dark' ? 'Yorugʻ rejim' : 'Qorongʻu rejim'}
+              </button>
+ 
+              <Link
+                href="/shikoyat"
+                onClick={onCloseNavMenu}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
+              >
+                <MessageSquare size={14} />
+                Shikoyat va takliflar
+              </Link>
+ 
+              <Link
+                href="/toshkentgpt-haqida"
+                onClick={onCloseNavMenu}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
+              >
+                <Info size={14} />
+                ToshkentGPT haqida
+              </Link>
+ 
+              <Link
+                href="/biz-haqimizda"
+                onClick={onCloseNavMenu}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
+              >
+                <Users size={14} />
+                Biz haqimizda
+              </Link>
+ 
+              <div className="my-1 h-px bg-[var(--tg-border)]" />
+ 
+              <Link
+                href="/tariflar"
+                onClick={onCloseNavMenu}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
+              >
+                <span className="flex items-center gap-2">
+                  <Sparkles size={14} />
+                  Tariflar
+                </span>
+                <span className="rounded-full border border-[var(--tg-border)] px-1.5 py-0.5 text-[10px]">
+                  {PLANS[planId || 'lite']?.name || 'Lite'}
+                </span>
+              </Link>
+            </div>
           )}
         </div>
-
+ 
         {/* Profil Menyusi */}
-        <div className="relative">
+        <div className="relative" ref={avatarMenuRef}>
           <button
             onClick={onToggleAvatarMenu}
             className="ml-1 flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-[var(--tg-border)]"
@@ -142,25 +186,19 @@ export default function Header({
               <User size={14} className="text-[var(--tg-text-2)]" />
             )}
           </button>
-          
+ 
           {avatarMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={onCloseAvatarMenu} />
-              <div className="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-1 shadow-xl">
-                <div className="truncate px-3 py-2 text-xs text-[var(--tg-text-3)]">{user?.email}</div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    signOut();
-                  }}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-                >
-                  <LogOut size={13} />
-                  Chiqish
-                </button>
-              </div>
-            </>
+            <div className="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-1 shadow-xl">
+              <div className="truncate px-3 py-2 text-xs text-[var(--tg-text-3)]">{user?.email}</div>
+              <button
+                type="button"
+                onClick={() => signOut()}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
+              >
+                <LogOut size={13} />
+                Chiqish
+              </button>
+            </div>
           )}
         </div>
       </div>

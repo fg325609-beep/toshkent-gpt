@@ -1,15 +1,15 @@
 'use client';
-
+ 
 import { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-
+ 
 import { PLANS } from './plans';
 import { storageKey, loadJSON, saveJSON } from '@/lib/storage';
 import { blankWelcome, stampNow, newSession, freshSession, sessionTitle } from '@/lib/session';
 import { stripMarkdown } from '@/lib/format';
 import { fileToDataUrl, fileToText } from '@/lib/files';
-
+ 
 import SignInScreen from '@/components/SignInScreen';
 import SplashScreen from '@/components/SplashScreen';
 import OnboardingFlow from '@/components/OnboardingFlow';
@@ -20,13 +20,13 @@ import ChatMessages from '@/components/ChatMessages';
 import ChatInput from '@/components/ChatInput';
 import PlansModal from '@/components/PlansModal';
 import { useTheme } from './use-theme';
-
+ 
 // ============================================================
 // Kirish darvozasi — avval Google orqali autentifikatsiyani tekshiradi.
 // ============================================================
 export default function ToshkentGPTGate() {
   const { data: authData, status } = useSession();
-
+ 
   if (status === 'loading') {
     return (
       <div className="flex h-dvh items-center justify-center bg-[var(--tg-bg)]">
@@ -34,14 +34,14 @@ export default function ToshkentGPTGate() {
       </div>
     );
   }
-
+ 
   if (status !== 'authenticated') {
     return <SignInScreen />;
   }
-
+ 
   return <ToshkentGPT user={authData.user} />;
 }
-
+ 
 // ============================================================
 // Asosiy chat ilovasi — foydalanuvchi tasdiqlangandan keyingina ishga tushadi.
 // Bu komponent barcha holatni (state) o'zida ushlaydi va uni pastki
@@ -56,7 +56,7 @@ function ToshkentGPT({ user }) {
   const ACTIVE_KEY = storageKey('toshkentgpt.activeId.v1', userEmail);
   const ALIVE_KEY = storageKey('toshkentgpt.alive', userEmail);
   const PROFILE_KEY = storageKey('toshkentgpt.profile.v1', userEmail);
-
+ 
   const [session, setSession] = useState(newSession);
   const [sessions, setSessions] = useState([]);
   const [profile, setProfile] = useState({});
@@ -72,18 +72,18 @@ function ToshkentGPT({ user }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [navMenuOpen, setNavMenuOpen] = useState(false);
-
+ 
   // --- Ro'yxatdan o'tishdagi bosqichli tanishuv (ism-familiya so'rash) ---
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [obStep, setObStep] = useState(1);
   const [obIsm, setObIsm] = useState('');
   const [obFamiliya, setObFamiliya] = useState('');
-
+ 
   // Tarif belgisi (Sozlamalar menyusidagi "Lite"/"Pro" kabi yozuv) uchun —
   // /tariflar va /shikoyat endi alohida sahifalar, shu yerda faqat hozirgi
   // tarifni bilib turish kifoya.
   const [planInfo, setPlanInfo] = useState(null); // { id, name, mode, limit, used, remaining, resetAt }
-
+ 
   // PlansModal — endi faqat chatda limitga/sinov muddatiga yetilganda ("interrupt"
   // sifatida) ochiladi. Oddiy "Tariflar" havolasi esa alohida /tariflar sahifasiga olib boradi.
   const [plansOpen, setPlansOpen] = useState(false);
@@ -92,18 +92,18 @@ function ToshkentGPT({ user }) {
   const [paymentStatus, setPaymentStatus] = useState('idle'); // idle | sending | sent | error
   const [trialStarting, setTrialStarting] = useState(false);
   const [trialEndInfo, setTrialEndInfo] = useState(null); // { planId, unlockAt }
-
+ 
   const [showSplash, setShowSplash] = useState(true);
   const [hydrated, setHydrated] = useState(false);
-
+ 
   const { theme, toggleTheme } = useTheme();
-
+ 
   const textareaRef = useRef(null);
   const scrollAnchorRef = useRef(null);
   const recognitionRef = useRef(null);
   const fileInputRef = useRef(null);
   const abortRef = useRef(null);
-
+ 
   // --- Ilova ochilganda: profil + suhbatlarni tiklash ---
   // Agar bu shunchaki sahifa yangilanishi bo'lsa (F5), oxirgi suhbat davom etadi.
   // Agar ilova haqiqatan yopib qayta ochilgan bo'lsa (yangi tab/oyna), yangi suhbat
@@ -111,7 +111,7 @@ function ToshkentGPT({ user }) {
   useEffect(() => {
     const storedProfile = loadJSON(PROFILE_KEY, {});
     setProfile(storedProfile);
-
+ 
     // Foydalanuvchi birinchi marta kirgan (hali tanishuv o'tmagan) bo'lsa — ism-familiya
     // so'raymiz. Google hisobidan kelgan ism-familiyani standart qiymat sifatida to'ldirib qo'yamiz.
     if (!storedProfile?.onboarded) {
@@ -121,11 +121,11 @@ function ToshkentGPT({ user }) {
       setObStep(1);
       setOnboardingOpen(true);
     }
-
+ 
     const stored = loadJSON(SESSIONS_KEY, []);
     const wasAlive = sessionStorage.getItem(ALIVE_KEY);
     const firstName = storedProfile?.ism;
-
+ 
     if (wasAlive && stored.length > 0) {
       const activeId = localStorage.getItem(ACTIVE_KEY);
       setSessions(stored);
@@ -140,9 +140,9 @@ function ToshkentGPT({ user }) {
     }
     sessionStorage.setItem(ALIVE_KEY, '1');
     setHydrated(true);
-
+ 
     const t = setTimeout(() => setShowSplash(false), 1400);
-
+ 
     // Serverdagi (Redis) profilni ham olib kelamiz — bu qurilmalar orasida
     // haqiqiy manba hisoblanadi (localStorage faqat shu brauzerga xos "kesh").
     // Masalan boshqa qurilmada tanishuvdan o'tgan bo'lsa, shu yerda bilib olamiz.
@@ -165,11 +165,11 @@ function ToshkentGPT({ user }) {
         }
       })
       .catch(() => {});
-
+ 
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail]);
-
+ 
   // --- Har bir o'zgarishda joriy suhbatni saqlab boramiz ("istoriya") ---
   useEffect(() => {
     if (!hydrated) return;
@@ -183,18 +183,18 @@ function ToshkentGPT({ user }) {
     localStorage.setItem(ACTIVE_KEY, session.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, hydrated]);
-
+ 
   useEffect(() => {
     scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [session.messages, isLoading]);
-
+ 
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [input]);
-
+ 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
@@ -214,26 +214,26 @@ function ToshkentGPT({ user }) {
     }
     if (!window.speechSynthesis) setTtsSupported(false);
   }, []);
-
+ 
   function updateMessages(updater) {
     setSession((prev) => {
       const messages = updater(prev.messages);
       return { ...prev, messages, title: sessionTitle(messages), updatedAt: new Date().toISOString() };
     });
   }
-
+ 
   function addMessage(role, content, extra = {}) {
     const msg = { id: crypto.randomUUID(), role, content, time: new Date().toISOString(), ...extra };
     updateMessages((prev) => [...prev, msg]);
     return msg;
   }
-
+ 
   // Tanishuv oxirida (yoki o'tkazib yuborilganda) chaqiriladi — ismni profilga
   // (demak, xotiraga) yozib qo'yamiz va ochilish xabarini yangi ism bilan yangilaymiz.
   function finishOnboarding({ skip } = {}) {
     const ism = skip ? '' : obIsm.trim();
     const familiya = skip ? '' : obFamiliya.trim();
-
+ 
     setProfile((prev) => {
       const next = { ...prev, onboarded: true };
       if (ism) next.ism = ism;
@@ -248,7 +248,7 @@ function ToshkentGPT({ user }) {
       }).catch(() => {});
       return next;
     });
-
+ 
     if (ism) {
       setSession((prev) =>
         prev.messages.length === 1 && prev.messages[0].id === 'welcome'
@@ -258,21 +258,21 @@ function ToshkentGPT({ user }) {
     }
     setOnboardingOpen(false);
   }
-
+ 
   function stopGeneration() {
     abortRef.current?.abort();
   }
-
+ 
   async function handleSendText(overrideText) {
     const text = (overrideText ?? input).trim();
     if ((!text && !attachment) || isLoading) return;
-
+ 
     const currentAttachment = attachment;
     const previousInteractionId = session.lastInteractionId;
-
+ 
     setInput('');
     setAttachment(null);
-
+ 
     addMessage('user', text, {
       image: currentAttachment?.kind === 'image' ? { dataUrl: currentAttachment.dataUrl, name: currentAttachment.name } : null,
       fileNote:
@@ -280,21 +280,21 @@ function ToshkentGPT({ user }) {
           ? `📎 ${currentAttachment.name}`
           : null,
     });
-
+ 
     setIsLoading(true);
     setErrorBanner(null);
-
+ 
     // Bot javobi kelayotganda to'ldirib boriladigan bo'sh xabar — "so'z-so'z" effekti shundan.
     const assistantId = crypto.randomUUID();
     updateMessages((prev) => [
       ...prev,
       { id: assistantId, role: 'assistant', content: '', time: new Date().toISOString() },
     ]);
-
+ 
     try {
       let finalText = text;
       let imagePayload;
-
+ 
       if (currentAttachment?.kind === 'image') {
         imagePayload = {
           mimeType: currentAttachment.mimeType,
@@ -308,17 +308,17 @@ function ToshkentGPT({ user }) {
       } else if (currentAttachment?.kind === 'file') {
         finalText = `${finalText}\n\n(Foydalanuvchi "${currentAttachment.name}" faylini biriktirdi, lekin bu turdagi faylni oʻqiy olmayman — faqat nomini bilaman.)`;
       }
-
+ 
       const controller = new AbortController();
       abortRef.current = controller;
-
+ 
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: finalText, image: imagePayload, previousInteractionId, profile }),
         signal: controller.signal,
       });
-
+ 
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => null);
         if (data?.unlockAt) {
@@ -333,19 +333,19 @@ function ToshkentGPT({ user }) {
         }
         throw new Error(data?.response || `Server xatosi: ${res.status}`);
       }
-
+ 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       let streamedText = '';
-
+ 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const parts = buffer.split('\n\n');
         buffer = parts.pop() ?? '';
-
+ 
         for (const part of parts) {
           const line = part.trim();
           if (!line.startsWith('data:')) continue;
@@ -355,7 +355,7 @@ function ToshkentGPT({ user }) {
           } catch {
             continue;
           }
-
+ 
           if (evt.type === 'chunk') {
             streamedText += evt.text;
             const snapshot = streamedText;
@@ -363,7 +363,11 @@ function ToshkentGPT({ user }) {
           } else if (evt.type === 'done') {
             const finalContent = evt.text;
             updateMessages((prev) =>
-              prev.map((m) => (m.id === assistantId ? { ...m, content: finalContent, time: new Date().toISOString() } : m))
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: finalContent, image: evt.image || m.image, time: new Date().toISOString() }
+                  : m
+              )
             );
             if (evt.interactionId) {
               setSession((prev) => ({ ...prev, lastInteractionId: evt.interactionId }));
@@ -401,14 +405,14 @@ function ToshkentGPT({ user }) {
       abortRef.current = null;
     }
   }
-
+ 
   function handleKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendText();
     }
   }
-
+ 
   function handleNewChat() {
     window.speechSynthesis?.cancel();
     const fresh = freshSession(profile?.ism);
@@ -418,13 +422,13 @@ function ToshkentGPT({ user }) {
     setAttachment(null);
     setHistoryOpen(false);
   }
-
+ 
   function openSession(s) {
     window.speechSynthesis?.cancel();
     setSession(s);
     setHistoryOpen(false);
   }
-
+ 
   function deleteSession(id, e) {
     e.stopPropagation();
     setSessions((prev) => {
@@ -436,7 +440,7 @@ function ToshkentGPT({ user }) {
       setSession(freshSession(profile?.ism));
     }
   }
-
+ 
   function toggleListening() {
     if (!speechSupported || !recognitionRef.current) return;
     if (listening) {
@@ -451,7 +455,7 @@ function ToshkentGPT({ user }) {
       }
     }
   }
-
+ 
   function toggleSpeak(msg) {
     if (!ttsSupported) return;
     if (speakingId === msg.id) {
@@ -467,7 +471,7 @@ function ToshkentGPT({ user }) {
     setSpeakingId(msg.id);
     window.speechSynthesis.speak(utter);
   }
-
+ 
   async function copyMessage(msg) {
     try {
       await navigator.clipboard.writeText(msg.content);
@@ -484,10 +488,10 @@ function ToshkentGPT({ user }) {
     setCopiedId(msg.id);
     setTimeout(() => setCopiedId(null), 1500);
   }
-
+ 
   async function handleFile(file) {
     if (!file) return;
-
+ 
     if (file.type.startsWith('image/')) {
       const dataUrl = await fileToDataUrl(file);
       setAttachment({ kind: 'image', mimeType: file.type, dataUrl, name: file.name });
@@ -509,13 +513,13 @@ function ToshkentGPT({ user }) {
       setAttachment({ kind: 'file', name: file.name });
     }
   }
-
+ 
   async function handleFilePicked(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
     await handleFile(file);
   }
-
+ 
   // Matn maydoniga Ctrl+V bilan rasm yoki video joylashtirilsa — biriktirma
   // sifatida qo'shamiz (oddiy matn joylashtirish odatdagidek ishlayveradi).
   function handlePaste(e) {
@@ -532,7 +536,7 @@ function ToshkentGPT({ user }) {
       }
     }
   }
-
+ 
   async function startTrial(planId) {
     setTrialStarting(true);
     try {
@@ -558,14 +562,14 @@ function ToshkentGPT({ user }) {
       setTrialStarting(false);
     }
   }
-
+ 
   function openUpgrade(planId) {
     setPaymentPlanId(planId);
     setPlansView('pay');
     setPaymentStatus('idle');
     setPlansOpen(true);
   }
-
+ 
   async function requestUpgrade() {
     setPaymentStatus('sending');
     try {
@@ -580,19 +584,19 @@ function ToshkentGPT({ user }) {
       setPaymentStatus('error');
     }
   }
-
+ 
   function goToPayFromTrialEnd(planId) {
     setPaymentPlanId(planId || 'pro');
     setPlansView('pay');
     setPaymentStatus('idle');
   }
-
+ 
   const sortedSessions = [...sessions].sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
-
+ 
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden bg-[var(--tg-bg)] text-[var(--tg-text-1)]">
       {showSplash && <SplashScreen />}
-
+ 
       {!showSplash && onboardingOpen && (
         <OnboardingFlow
           step={obStep}
@@ -607,10 +611,10 @@ function ToshkentGPT({ user }) {
           onSkip={() => finishOnboarding({ skip: true })}
         />
       )}
-
+ 
       <div className="tg-ambient-bg pointer-events-none fixed inset-0" />
       <GirihPattern />
-
+ 
       <Header
         user={user}
         theme={theme}
@@ -625,13 +629,13 @@ function ToshkentGPT({ user }) {
         onOpenHistory={() => setHistoryOpen(true)}
         onNewChat={handleNewChat}
       />
-
+ 
       {errorBanner && (
         <div className="relative z-10 border-b border-red-500/20 bg-red-500/10 px-4 py-2 text-center text-xs text-red-300 sm:px-6">
           {errorBanner}
         </div>
       )}
-
+ 
       <ChatMessages
         messages={session.messages}
         userImage={user?.image}
@@ -644,7 +648,7 @@ function ToshkentGPT({ user }) {
         onSuggestionClick={(s) => handleSendText(s)}
         scrollAnchorRef={scrollAnchorRef}
       />
-
+ 
       <ChatInput
         planInfo={planInfo}
         attachment={attachment}
@@ -663,7 +667,7 @@ function ToshkentGPT({ user }) {
         onStop={stopGeneration}
         onSend={() => handleSendText()}
       />
-
+ 
       <Sidebar
         open={historyOpen}
         sessions={sortedSessions}
@@ -673,7 +677,7 @@ function ToshkentGPT({ user }) {
         onOpenSession={openSession}
         onDeleteSession={deleteSession}
       />
-
+ 
       <PlansModal
         open={plansOpen}
         onClose={() => setPlansOpen(false)}
