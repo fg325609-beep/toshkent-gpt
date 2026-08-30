@@ -1,6 +1,6 @@
 'use client';
  
-import { User, Check, Copy, Volume2, VolumeX } from 'lucide-react';
+import { User, Check, Copy, Volume2, VolumeX, RefreshCw, Pencil, ThumbsUp, ThumbsDown } from 'lucide-react';
 import MarkdownMessage from '@/app/markdown-message';
 import { formatTime } from '@/lib/format';
  
@@ -18,6 +18,11 @@ export default function MessageBubble({
   ttsSupported,
   onCopy,
   onToggleSpeak,
+  canRegenerate,
+  canEdit,
+  onRegenerate,
+  onEdit,
+  onRate,
 }) {
   const isUser = msg.role === 'user';
  
@@ -96,6 +101,46 @@ export default function MessageBubble({
               >
                 {speakingId === msg.id ? <VolumeX size={12} /> : <Volume2 size={12} />}
               </button>
+            )}
+            {isUser && canEdit && (
+              <button
+                onClick={() => onEdit(msg)}
+                title="Tahrirlash"
+                className="text-[var(--tg-text-3)] transition-colors hover:text-[var(--tg-text-1)]"
+              >
+                <Pencil size={12} />
+              </button>
+            )}
+            {!isUser && canRegenerate && (
+              <button
+                onClick={() => onRegenerate(msg)}
+                title="Qayta yozdirish"
+                className="text-[var(--tg-text-3)] transition-colors hover:text-[var(--tg-text-1)]"
+              >
+                <RefreshCw size={12} />
+              </button>
+            )}
+            {!isUser && msg.content && (
+              <>
+                <button
+                  onClick={() => onRate(msg, 'up')}
+                  title="Yoqdi"
+                  className={`transition-colors hover:text-[var(--tg-text-1)] ${
+                    msg.rating === 'up' ? 'text-[#2F9E96]' : 'text-[var(--tg-text-3)]'
+                  }`}
+                >
+                  <ThumbsUp size={12} />
+                </button>
+                <button
+                  onClick={() => onRate(msg, 'down')}
+                  title="Yoqmadi"
+                  className={`transition-colors hover:text-[var(--tg-text-1)] ${
+                    msg.rating === 'down' ? 'text-red-400' : 'text-[var(--tg-text-3)]'
+                  }`}
+                >
+                  <ThumbsDown size={12} />
+                </button>
+              </>
             )}
           </div>
         </div>

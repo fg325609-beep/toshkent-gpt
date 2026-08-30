@@ -22,11 +22,20 @@ export default function ChatMessages({
   ttsSupported,
   onCopy,
   onToggleSpeak,
+  onRegenerate,
+  onEdit,
+  onRate,
   onSuggestionClick,
   scrollAnchorRef,
 }) {
   const showSuggestions = messages.length === 1;
   const lastMessageId = messages[messages.length - 1]?.id;
+ 
+  // "Qayta generatsiya" faqat ENG OXIRGI AI javobida, "Tahrirlash" esa faqat
+  // ENG OXIRGI foydalanuvchi xabarida ko'rinadi — aks holda suhbat tarixi
+  // va AI xotirasi (interactionId) chalkashib ketadi.
+  const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
+  const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
  
   return (
     <main className="relative z-10 flex-1 overflow-y-auto px-3 py-6 sm:px-6 tg-scroll">
@@ -43,6 +52,11 @@ export default function ChatMessages({
             ttsSupported={ttsSupported}
             onCopy={onCopy}
             onToggleSpeak={onToggleSpeak}
+            canRegenerate={!isLoading && msg.id === lastAssistantMsg?.id}
+            canEdit={!isLoading && msg.id === lastUserMsg?.id}
+            onRegenerate={onRegenerate}
+            onEdit={onEdit}
+            onRate={onRate}
           />
         ))}
  

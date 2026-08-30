@@ -273,42 +273,109 @@ function ToshkentGPT({ user }) {
     setInput('');
     setAttachment(null);
  
+    // Serverga yuboriladigan yakuniy matn/rasm shu yerda tayyorlanadi — bir xil
+    // qiymatlar keyinroq "qayta generatsiya qilish" (regenerate) uchun ham
+    // xabar ichida saqlab qo'yiladi (apiText/apiImage), aks holda regenerate
+    // vaqtida fayl matnini yoki rasmni qayta qurib bo'lmaydi.
+    let finalText = text;
+    let imagePayload;
+ 
+    if (currentAttachment?.kind === 'image') {
+      imagePayload = {
+        mimeType: currentAttachment.mimeType,
+        data: currentAttachment.dataUrl.split(',')[1],
+      };
+      if (!finalText) finalText = 'Bu rasmda nima borligini aytib ber.';
+    } else if (currentAttachment?.kind === 'text') {
+      finalText = `${finalText}\n\n[Fayl: ${currentAttachment.name}]\n${currentAttachment.text.slice(0, 6000)}`;
+    } else if (currentAttachment?.kind === 'video') {
+      finalText = `${finalText}\n\n(Foydalanuvchi "${currentAttachment.name}" nomli video biriktirdi, lekin men hozircha video formatini koʻra olmayman — faqat nomini bilaman.)`;
+    } else if (currentAttachment?.kind === 'file') {
+      finalText = `${finalText}\n\n(Foydalanuvchi "${currentAttachment.name}" faylini biriktirdi, lekin bu turdagi faylni oʻqiy olmayman — faqat nomini bilaman.)`;
+    }
+ 
     addMessage('user', text, {
       image: currentAttachment?.kind === 'image' ? { dataUrl: currentAttachment.dataUrl, name: currentAttachment.name } : null,
       fileNote:
         currentAttachment && currentAttachment.kind !== 'image'
           ? `📎 ${currentAttachment.name}`
           : null,
+      apiText: finalText,
+      apiImage: imagePayload || null,
+      prevInteractionId: previousInteractionId,
     });
- 
-    setIsLoading(true);
-    setErrorBanner(null);
  
     // Bot javobi kelayotganda to'ldirib boriladigan bo'sh xabar — "so'z-so'z" effekti shundan.
     const assistantId = crypto.randomUUID();
     updateMessages((prev) => [
       ...prev,
-      { id: assistantId, role: 'assistant', content: '', time: new Date().toISOString() },
+      { id: assistantId, role: 'assistant', content: '', time: new Date().toISOString(), prevInteractionId: previousInteractionId },
     ]);
  
+    await streamAssistantReply({ assistantId, finalText, imagePayload, previousInteractionId });
+  }
+ 
+  // "Qayta generatsiya qilish" (regenerate) tugmasi bosilganda: oldingi
+  // foydalanuvchi xabari (matn/rasm) o'sha holicha qayta yuboriladi, lekin
+  // YANGI foydalanuvchi pufakchasi qo'shilmaydi — faqat AI javobi (assistantMsg)
+  // o'rniga yangisi yoziladi.
+  async function regenerateMessage(assistantMsg) {
+    if (isLoading) return;
+    const idx = session.messages.findIndex((m) => m.id === assistantMsg.id);
+    const userMsg = session.messages[idx - 1];
+    if (!userMsg || userMsg.role !== 'user') return;
+ 
+    window.speechSynthesis?.cancel();
+    updateMessages((prev) => prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: '', rating: null } : m)));
+ 
+    await streamAssistantReply({
+      assistantId: assistantMsg.id,
+      finalText: userMsg.apiText ?? userMsg.content,
+      imagePayload: userMsg.apiImage || undefined,
+      previousInteractionId: assistantMsg.prevInteractionId ?? userMsg.prevInteractionId ?? null,
+    });
+  }
+ 
+  // "Tahrirlash" tugmasi — faqat suhbatdagi ENG OXIRGI foydalanuvchi xabari
+  // uchun ishlaydi (aks holda AI xotirasi va tarix bir-biriga mos kelmay
+  // qoladi). Xabar va undan keyingi javob o'chiriladi, matn kiritish
+  // maydoniga qaytariladi — foydalanuvchi tahrirlab, qayta yuboradi.
+  function startEditMessage(userMsg) {
+    if (isLoading) return;
+    const idx = session.messages.findIndex((m) => m.id === userMsg.id);
+    if (idx === -1) return;
+ 
+    updateMessages((prev) => prev.slice(0, idx));
+    setSession((prev) => ({ ...prev, lastInteractionId: userMsg.prevInteractionId ?? null }));
+    setInput(userMsg.content);
+    setAttachment(null);
+    textareaRef.current?.focus();
+  }
+ 
+  // Assistant javobiga 👍/👎 belgisi qo'yish. Faqat vizual holat sifatida
+  // saqlanadi, shu bilan birga adminга ko'rish uchun serverga ham (xatoga
+  // chidamli, interfeysni to'smaydigan tarzda) yuboriladi.
+  function rateMessage(msg, rating) {
+    const nextRating = msg.rating === rating ? null : rating;
+    updateMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, rating: nextRating } : m)));
+ 
+    if (nextRating) {
+      fetch('/api/rate-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating: nextRating, content: msg.content }),
+      }).catch(() => {});
+    }
+  }
+ 
+  // /api/chat'ga so'rov yuborish + streaming javobni o'qish — bu qism
+  // handleSendText (yangi xabar) va regenerateMessage (qayta generatsiya)
+  // ikkalasi uchun ham umumiy, shuning uchun alohida funksiyaga chiqarilgan.
+  async function streamAssistantReply({ assistantId, finalText, imagePayload, previousInteractionId }) {
+    setIsLoading(true);
+    setErrorBanner(null);
+ 
     try {
-      let finalText = text;
-      let imagePayload;
- 
-      if (currentAttachment?.kind === 'image') {
-        imagePayload = {
-          mimeType: currentAttachment.mimeType,
-          data: currentAttachment.dataUrl.split(',')[1],
-        };
-        if (!finalText) finalText = 'Bu rasmda nima borligini aytib ber.';
-      } else if (currentAttachment?.kind === 'text') {
-        finalText = `${finalText}\n\n[Fayl: ${currentAttachment.name}]\n${currentAttachment.text.slice(0, 6000)}`;
-      } else if (currentAttachment?.kind === 'video') {
-        finalText = `${finalText}\n\n(Foydalanuvchi "${currentAttachment.name}" nomli video biriktirdi, lekin men hozircha video formatini koʻra olmayman — faqat nomini bilaman.)`;
-      } else if (currentAttachment?.kind === 'file') {
-        finalText = `${finalText}\n\n(Foydalanuvchi "${currentAttachment.name}" faylini biriktirdi, lekin bu turdagi faylni oʻqiy olmayman — faqat nomini bilaman.)`;
-      }
- 
       const controller = new AbortController();
       abortRef.current = controller;
  
@@ -645,6 +712,9 @@ function ToshkentGPT({ user }) {
         ttsSupported={ttsSupported}
         onCopy={copyMessage}
         onToggleSpeak={toggleSpeak}
+        onRegenerate={regenerateMessage}
+        onEdit={startEditMessage}
+        onRate={rateMessage}
         onSuggestionClick={(s) => handleSendText(s)}
         scrollAnchorRef={scrollAnchorRef}
       />
@@ -696,3 +766,4 @@ function ToshkentGPT({ user }) {
     </div>
   );
 }
+ 
