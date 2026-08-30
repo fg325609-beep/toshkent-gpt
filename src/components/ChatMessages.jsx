@@ -4,7 +4,7 @@ import MessageBubble from './MessageBubble';
  
 const SUGGESTIONS = [
   'Aka, ishlar qalay?',
-  'Bugun nima qilsam boʻladi zerikmasdan?',
+  '/prezentatsiya fotosintez jarayoni',
   'Bitta kulgili gap ayt',
   '/rasm gitara chalayotgan mushuk',
 ];
@@ -79,3 +79,4 @@ export default function ChatMessages({
     </main>
   );
 }
+ 

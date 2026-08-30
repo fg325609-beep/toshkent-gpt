@@ -1,6 +1,6 @@
 'use client';
  
-import { User, Check, Copy, Volume2, VolumeX, RefreshCw, Pencil, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { User, Check, Copy, Volume2, VolumeX, RefreshCw, Pencil, ThumbsUp, ThumbsDown, FileDown } from 'lucide-react';
 import MarkdownMessage from '@/app/markdown-message';
 import { formatTime } from '@/lib/format';
  
@@ -73,6 +73,21 @@ export default function MessageBubble({
                   <div className="whitespace-pre-wrap">{msg.content}</div>
                 ) : (
                   <MarkdownMessage content={msg.content} />
+                )}
+                {msg.file?.base64 && (
+                  <a
+                    href={`data:${msg.file.mimeType};base64,${msg.file.base64}`}
+                    download={msg.file.filename}
+                    className="mt-2.5 flex items-center gap-2.5 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-hover)] px-3 py-2.5 transition hover:bg-[var(--tg-hover-strong)]"
+                  >
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#E4A93B]/15 text-[#E4A93B]">
+                      <FileDown size={15} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-semibold text-[var(--tg-text-1)]">{msg.file.filename}</div>
+                      <div className="text-[11px] text-[var(--tg-text-3)]">Yuklab olish uchun bosing</div>
+                    </div>
+                  </a>
                 )}
               </div>
             )
@@ -148,3 +163,4 @@ export default function MessageBubble({
     </div>
   );
 }
+ 

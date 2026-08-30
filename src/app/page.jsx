@@ -432,7 +432,7 @@ function ToshkentGPT({ user }) {
             updateMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, content: finalContent, image: evt.image || m.image, time: new Date().toISOString() }
+                  ? { ...m, content: finalContent, image: evt.image || m.image, file: evt.file || m.file, time: new Date().toISOString() }
                   : m
               )
             );
