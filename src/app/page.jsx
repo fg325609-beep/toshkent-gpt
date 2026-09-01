@@ -259,6 +259,19 @@ function ToshkentGPT({ user }) {
     setOnboardingOpen(false);
   }
  
+  function changeLanguage(lang) {
+    setProfile((prev) => {
+      const next = { ...prev, til: lang };
+      saveJSON(PROFILE_KEY, next);
+      fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      }).catch(() => {});
+      return next;
+    });
+  }
+ 
   function stopGeneration() {
     abortRef.current?.abort();
   }
@@ -686,6 +699,8 @@ function ToshkentGPT({ user }) {
         user={user}
         theme={theme}
         onToggleTheme={toggleTheme}
+        language={profile?.til}
+        onChangeLanguage={changeLanguage}
         planId={planInfo?.id}
         navMenuOpen={navMenuOpen}
         onToggleNavMenu={() => setNavMenuOpen((v) => !v)}

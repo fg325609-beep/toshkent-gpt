@@ -1,8 +1,10 @@
+
 import { GoogleGenAI } from '@google/genai';
 import pptxgen from 'pptxgenjs';
 import { auth } from '@/auth';
 import { getUserState, resolveEffectivePlan, getUsageWindow, recordUsage, saveUserState } from '../_lib/user-plan';
 import { getUserProfile, mergeUserProfile } from '../_lib/user-profile';
+import { touchUser } from '../_lib/admin';
  
 // Uzun javoblar Vercel'ning standart vaqt chegarasida kesilib qolmasligi uchun.
 export const maxDuration = 60;
@@ -56,7 +58,17 @@ Qoidalar: 6 dan 9 tagacha kontent slayd yarat (title slaydidan tashqari). Har bi
 // belgi orqali ajratib olish uchun format: [[ESLA: kalit=qiymat]]
 const FACT_TAG_RE = /\[\[ESLA:\s*([^=\]]+)=([^\]]+)\]\]/gi;
  
-function buildSystemInstruction(profile) {
+const LANGUAGE_INSTRUCTIONS = {
+  ru: "\n\nMUHIM — TIL: Foydalanuvchi rus tilida javob olishni tanlagan. Barcha javoblaringni albatta RUS TILIDA yoz (o'zbekcha emas), lekin ToshkentGPT xarakteringni (samimiy, hazil-mutoyiba, do'stona ohang) saqlab qol.",
+  en: "\n\nIMPORTANT — LANGUAGE: The user has chosen to receive replies in English. Always write your replies in ENGLISH (not Uzbek), while keeping your ToshkentGPT personality (warm, playful, friendly tone).",
+};
+// Til "avtomatik" bo'lsa (yoki umuman tanlanmagan bo'lsa) — standart o'zbekcha
+// uslubda javob beramiz, lekin foydalanuvchi boshqa tilda yozsa, shu tilga
+// moslashamiz (majburiy tarjima qilib o'tirmaymiz).
+const AUTO_LANGUAGE_INSTRUCTION =
+  "\n\nAgar foydalanuvchi xabarni rus yoki ingliz (yoki boshqa) tilda yozsa, sen ham javobni O'SHA TILDA yoz — majburan o'zbek tiliga tarjima qilib o'tirma.";
+ 
+function buildSystemInstruction(profile, language) {
   const entries = Object.entries(profile || {}).filter(([, v]) => v);
   const knownLine = entries.length
     ? `\n\nFoydalanuvchi haqida oldindan ma'lum faktlar: ${entries.map(([k, v]) => `${k}=${v}`).join(', ')}. Mos kelganda shulardan tabiiy foydalan (masalan ismi bilan chaqirish), lekin har gal takrorlab o'tirma.`
@@ -64,7 +76,9 @@ function buildSystemInstruction(profile) {
  
   const captureInstruction = `\n\nAgar foydalanuvchi shu xabarida ismini yoki boshqa doimiy shaxsiy ma'lumotini (masalan: ism, yashash joyi, kasbi, yoshi, yoqtirgan narsasi) birinchi marta aytsa, javobingning ENG OXIRIGA, alohida qatorda, aynan shu formatda yashirin belgi qo'sh: [[ESLA: kalit=qiymat]] — masalan [[ESLA: ism=Ali]]. Bir nechta fakt bo'lsa, har birini alohida qatorga yoz. Agar hech qanday yangi shaxsiy fakt aytilmagan bo'lsa yoki u allaqachon ma'lum bo'lsa, bunday qator umuman qo'shma. Bu qatorlar foydalanuvchiga hech qachon ko'rsatilmaydi.`;
  
-  return `${BASE_STYLE}${knownLine}${captureInstruction}`;
+  const languageInstruction = LANGUAGE_INSTRUCTIONS[language] || AUTO_LANGUAGE_INSTRUCTION;
+ 
+  return `${BASE_STYLE}${knownLine}${captureInstruction}${languageInstruction}`;
 }
  
 function extractFacts(rawText) {
@@ -105,6 +119,9 @@ export async function POST(req) {
   if (!email) {
     return Response.json({ response: 'Avval Google orqali tizimga kiring.' }, { status: 401 });
   }
+ 
+  // Admin panelidagi "online foydalanuvchilar" ro'yxati uchun faollikni belgilaymiz.
+  touchUser(email, { name: session.user.name, image: session.user.image }).catch(() => {});
  
   // Profilni SERVERDAGI (Redis) nusxadan olamiz, mijoz yuborgan qiymatga ishonmaymiz —
   // aks holda birov so'rovni o'zgartirib, AI'ning tizim ko'rsatmasiga xohlagan matnini
@@ -384,7 +401,7 @@ export async function POST(req) {
       ]
     : text;
  
-  const systemInstruction = buildSystemInstruction(profile);
+  const systemInstruction = buildSystemInstruction(profile, profile?.til);
   const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
  
   async function openStream(prevId) {

@@ -2,7 +2,7 @@
  
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User, Info, Users } from 'lucide-react';
+import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User, Info, Users, Languages } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { PLANS } from '@/app/plans';
  
@@ -36,6 +36,8 @@ export default function Header({
   user,
   theme,
   onToggleTheme,
+  language,
+  onChangeLanguage,
   planId,
   navMenuOpen,
   onToggleNavMenu,
@@ -127,6 +129,36 @@ export default function Header({
                 {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
                 {theme === 'dark' ? 'Yorugʻ rejim' : 'Qorongʻu rejim'}
               </button>
+ 
+              <div className="px-3 py-2">
+                <div className="mb-1.5 flex items-center gap-2 text-xs text-[var(--tg-text-2)]">
+                  <Languages size={14} />
+                  Bot tili
+                </div>
+                <div className="flex gap-1">
+                  {[
+                    { id: 'auto', label: 'Avto' },
+                    { id: 'uz', label: 'UZ' },
+                    { id: 'ru', label: 'RU' },
+                    { id: 'en', label: 'EN' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => onChangeLanguage?.(opt.id)}
+                      className={`flex-1 rounded-lg border px-1.5 py-1 text-[11px] font-medium transition ${
+                        (language || 'auto') === opt.id
+                          ? 'border-[#2F9E96] bg-[#2F9E96]/15 text-[#2F9E96]'
+                          : 'border-[var(--tg-border)] text-[var(--tg-text-3)] hover:bg-[var(--tg-hover)]'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+ 
+              <div className="my-1 h-px bg-[var(--tg-border)]" />
  
               <Link
                 href="/shikoyat"
