@@ -292,6 +292,7 @@ function ToshkentGPT({ user }) {
     // vaqtida fayl matnini yoki rasmni qayta qurib bo'lmaydi.
     let finalText = text;
     let imagePayload;
+    let pdfPayload;
  
     if (currentAttachment?.kind === 'image') {
       imagePayload = {
@@ -299,6 +300,9 @@ function ToshkentGPT({ user }) {
         data: currentAttachment.dataUrl.split(',')[1],
       };
       if (!finalText) finalText = 'Bu rasmda nima borligini aytib ber.';
+    } else if (currentAttachment?.kind === 'pdf') {
+      pdfPayload = { data: currentAttachment.dataUrl.split(',')[1], name: currentAttachment.name };
+      if (!finalText) finalText = 'Bu PDF faylda nima yozilganini tushuntirib ber.';
     } else if (currentAttachment?.kind === 'text') {
       finalText = `${finalText}\n\n[Fayl: ${currentAttachment.name}]\n${currentAttachment.text.slice(0, 6000)}`;
     } else if (currentAttachment?.kind === 'video') {
@@ -315,6 +319,7 @@ function ToshkentGPT({ user }) {
           : null,
       apiText: finalText,
       apiImage: imagePayload || null,
+      apiPdf: pdfPayload || null,
       prevInteractionId: previousInteractionId,
     });
  
@@ -325,7 +330,7 @@ function ToshkentGPT({ user }) {
       { id: assistantId, role: 'assistant', content: '', time: new Date().toISOString(), prevInteractionId: previousInteractionId },
     ]);
  
-    await streamAssistantReply({ assistantId, finalText, imagePayload, previousInteractionId });
+    await streamAssistantReply({ assistantId, finalText, imagePayload, pdfPayload, previousInteractionId });
   }
  
   // "Qayta generatsiya qilish" (regenerate) tugmasi bosilganda: oldingi
@@ -345,6 +350,7 @@ function ToshkentGPT({ user }) {
       assistantId: assistantMsg.id,
       finalText: userMsg.apiText ?? userMsg.content,
       imagePayload: userMsg.apiImage || undefined,
+      pdfPayload: userMsg.apiPdf || undefined,
       previousInteractionId: assistantMsg.prevInteractionId ?? userMsg.prevInteractionId ?? null,
     });
   }
@@ -384,7 +390,7 @@ function ToshkentGPT({ user }) {
   // /api/chat'ga so'rov yuborish + streaming javobni o'qish — bu qism
   // handleSendText (yangi xabar) va regenerateMessage (qayta generatsiya)
   // ikkalasi uchun ham umumiy, shuning uchun alohida funksiyaga chiqarilgan.
-  async function streamAssistantReply({ assistantId, finalText, imagePayload, previousInteractionId }) {
+  async function streamAssistantReply({ assistantId, finalText, imagePayload, pdfPayload, previousInteractionId }) {
     setIsLoading(true);
     setErrorBanner(null);
  
@@ -395,7 +401,7 @@ function ToshkentGPT({ user }) {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: finalText, image: imagePayload, previousInteractionId, profile }),
+        body: JSON.stringify({ text: finalText, image: imagePayload, pdf: pdfPayload, previousInteractionId, profile }),
         signal: controller.signal,
       });
  
@@ -575,6 +581,13 @@ function ToshkentGPT({ user }) {
     if (file.type.startsWith('image/')) {
       const dataUrl = await fileToDataUrl(file);
       setAttachment({ kind: 'image', mimeType: file.type, dataUrl, name: file.name });
+    } else if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      if (file.size > 15_000_000) {
+        setAttachment({ kind: 'file', name: file.name });
+        return;
+      }
+      const dataUrl = await fileToDataUrl(file);
+      setAttachment({ kind: 'pdf', dataUrl, name: file.name });
     } else if (file.type.startsWith('video/')) {
       if (file.size > 15_000_000) {
         setAttachment({ kind: 'video', name: file.name });

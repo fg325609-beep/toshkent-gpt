@@ -1,8 +1,8 @@
 'use client';
-
-import { Paperclip, Mic, Square, Send, X, Film } from 'lucide-react';
+ 
+import { Paperclip, Mic, Square, Send, X, Film, FileText } from 'lucide-react';
 import { formatTime } from '@/lib/format';
-
+ 
 // ============================================================
 // Pastki panel: tarif-limit banneri, biriktirma (rasm/video/fayl) ko'rinishi
 // va yozish qatori (matn, ovoz, biriktirish, yuborish/toʻxtatish tugmalari).
@@ -26,7 +26,7 @@ export default function ChatInput({
   onSend,
 }) {
   const canSend = Boolean(input.trim() || attachment);
-
+ 
   return (
     <footer className="relative z-10 border-t border-[var(--tg-border)] bg-[var(--tg-bg)] px-3 py-4 sm:px-6">
       <div className="mx-auto max-w-3xl">
@@ -38,7 +38,7 @@ export default function ChatInput({
             {planInfo.resetAt && <span>Soat {formatTime(planInfo.resetAt)}da yangilanadi</span>}
           </div>
         )}
-
+ 
         {attachment && (
           <div className="tg-pop-in mb-2 flex items-center gap-2.5 rounded-xl border border-[#E4A93B]/30 bg-[var(--tg-surface-2)] px-3 py-2">
             {attachment.kind === 'image' ? (
@@ -51,6 +51,10 @@ export default function ChatInput({
                   <Film size={16} />
                 </div>
               )
+            ) : attachment.kind === 'pdf' ? (
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--tg-hover)] text-[#E4A93B]">
+                <FileText size={16} />
+              </div>
             ) : (
               <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--tg-hover)] text-[#E4A93B]">
                 <Paperclip size={16} />
@@ -58,7 +62,13 @@ export default function ChatInput({
             )}
             <div className="min-w-0 flex-1">
               <p className="text-[10.5px] font-medium uppercase tracking-wide text-[#E4A93B]">
-                {attachment.kind === 'image' ? 'Rasm biriktirildi' : attachment.kind === 'video' ? 'Video biriktirildi' : 'Fayl biriktirildi'}
+                {attachment.kind === 'image'
+                  ? 'Rasm biriktirildi'
+                  : attachment.kind === 'video'
+                    ? 'Video biriktirildi'
+                    : attachment.kind === 'pdf'
+                      ? 'PDF biriktirildi'
+                      : 'Fayl biriktirildi'}
               </p>
               <p className="truncate text-xs text-[var(--tg-text-2)]">{attachment.name}</p>
             </div>
@@ -71,7 +81,7 @@ export default function ChatInput({
             </button>
           </div>
         )}
-
+ 
         <div className="flex items-end gap-2 rounded-2xl border border-[var(--tg-border)] bg-[var(--tg-surface-2)] p-2 transition focus-within:border-[#E4A93B]/40">
           <input
             ref={fileInputRef}
@@ -87,7 +97,7 @@ export default function ChatInput({
           >
             <Paperclip size={16} />
           </button>
-
+ 
           <textarea
             ref={textareaRef}
             value={input}
@@ -98,7 +108,7 @@ export default function ChatInput({
             placeholder="Yoz, jigar... (rasm/video uchun Ctrl+V ham boʻladi)"
             className="max-h-40 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-[var(--tg-text-1)] placeholder-[var(--tg-text-3)] outline-none"
           />
-
+ 
           {speechSupported && (
             <button
               onClick={onToggleListening}
@@ -110,7 +120,7 @@ export default function ChatInput({
               {listening ? <Square size={14} /> : <Mic size={16} />}
             </button>
           )}
-
+ 
           {isLoading ? (
             <button
               onClick={onStop}
@@ -132,7 +142,7 @@ export default function ChatInput({
             </button>
           )}
         </div>
-
+ 
         <p className="mt-2 text-center text-[11px] text-[var(--tg-text-4)]">
           ToshkentGPT xato qilishi mumkin · Enter — yuborish, Shift+Enter — yangi qator
         </p>
@@ -140,3 +150,4 @@ export default function ChatInput({
     </footer>
   );
 }
+ 

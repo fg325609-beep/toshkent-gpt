@@ -1,6 +1,6 @@
-
 import { GoogleGenAI } from '@google/genai';
 import pptxgen from 'pptxgenjs';
+import { extractText, getDocumentProxy } from 'unpdf';
 import { auth } from '@/auth';
 import { getUserState, resolveEffectivePlan, getUsageWindow, recordUsage, saveUserState } from '../_lib/user-plan';
 import { getUserProfile, mergeUserProfile } from '../_lib/user-profile';
@@ -24,7 +24,7 @@ function formatTime(iso) {
   return new Date(iso).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' });
 }
  
-const BASE_STYLE = `Sen haqiqiy toshkentlik yigitsan. Isming - ToshkentGPT. Foydalanuvchi bilan 'jigar', 'brat', 'chotki', 'qalay' kabi so'zlarni ishlatib, samimiy va hazil-mutoyiba bilan gaplashasan. Juda rasmiy bo'lma, xuddi yaqin o'rtog'ing bilan choyxonada suhbatlashayotgandek erkin, sodda va qisqa javob ber. Agar rasm yoki fayl yuborilsa, uning mazmuni haqida ham shu uslubda gapirib ber. Kod yozishing kerak bo'lsa, har doim markdown kod bloklaridan (uch qiyshiq chiziq bilan) foydalan.`;
+const BASE_STYLE = `Sen haqiqiy toshkentlik yigitsan. Isming - ToshkentGPT. Foydalanuvchi bilan 'jigar', 'brat', 'chotki', 'qalay' kabi so'zlarni ishlatib, samimiy va hazil-mutoyiba bilan gaplashasan. Juda rasmiy bo'lma, xuddi yaqin o'rtog'ing bilan choyxonada suhbatlashayotgandek erkin, sodda va qisqa javob ber. Agar rasm yoki fayl yuborilsa, uning mazmuni haqida ham shu uslubda gapirib ber. Kod yozishing kerak bo'lsa, har doim markdown kod bloklaridan (uch qiyshiq chiziq bilan) foydalan. Senda internetdan QIDIRISH imkoniyati bor — agar savol joriy/yangi ma'lumot talab qilsa (masalan bugungi kurs, ob-havo, so'nggi yangiliklar, hozirgi narxlar, kim g'olib chiqdi kabi), albatta qidiruvdan foydalanib, ANIQ va YANGI ma'lumot ber. "Menda real vaqt ma'lumoti yo'q" deb aytma — senda bor, undan foydalan.`;
  
 // "/rasm <tavsif>" buyrug'ini aniqlash uchun. Masalan: "/rasm mushuk kosmik kostyumda"
 const IMAGE_COMMAND_RE = /^\/rasm\s+([\s\S]+)/i;
@@ -95,10 +95,10 @@ function extractFacts(rawText) {
 }
  
 export async function POST(req) {
-  const { text, image, previousInteractionId, profile: clientProfile } = await req.json();
+  const { text, image, pdf, previousInteractionId, profile: clientProfile } = await req.json();
  
-  if (!text && !image) {
-    return Response.json({ response: 'Matn yoki rasm kiritilmadi!' }, { status: 400 });
+  if (!text && !image && !pdf) {
+    return Response.json({ response: 'Matn, rasm yoki fayl kiritilmadi!' }, { status: 400 });
   }
   if (text && text.length > 8000) {
     return Response.json({ response: 'Xabar juda uzun (8000 belgidan oshmasin).' }, { status: 400 });
@@ -394,12 +394,29 @@ export async function POST(req) {
     });
   }
  
+  // PDF biriktirilgan bo'lsa — matnini shu yerda (serverda) chiqarib olamiz,
+  // chunki brauzerda PDF o'qish murakkab va katta kutubxona talab qiladi.
+  let pdfSection = '';
+  if (pdf?.data) {
+    try {
+      const buffer = Buffer.from(pdf.data, 'base64');
+      const pdfDoc = await getDocumentProxy(new Uint8Array(buffer));
+      const { text: extracted } = await extractText(pdfDoc, { mergePages: true });
+      pdfSection = `\n\n[PDF fayl: ${pdf.name || 'fayl.pdf'}]\n${(extracted || '').trim().slice(0, 12000)}`;
+    } catch (err) {
+      console.error("PDF o'qishda xato:", err);
+      pdfSection = `\n\n(Foydalanuvchi "${pdf.name || 'fayl.pdf'}" nomli PDF fayl yubordi, lekin uni o'qib bo'lmadi — fayl buzilgan yoki parol bilan himoyalangan bo'lishi mumkin.)`;
+    }
+  }
+ 
+  const textWithPdf = `${text || (pdf?.data ? 'Bu PDF faylda nima yozilganini tushuntirib ber.' : '')}${pdfSection}`;
+ 
   const input = image?.data
     ? [
-        { type: 'text', text: text || 'Bu rasmda nima borligini aytib ber.' },
+        { type: 'text', text: textWithPdf || 'Bu rasmda nima borligini aytib ber.' },
         { type: 'image', data: image.data, mime_type: image.mimeType },
       ]
-    : text;
+    : textWithPdf;
  
   const systemInstruction = buildSystemInstruction(profile, profile?.til);
   const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
@@ -446,6 +463,7 @@ export async function POST(req) {
         }
  
         for await (const event of stream) {
+          console.log('[DEBUG event]', event?.event_type, '| delta.type:', event?.delta?.type, '| keys:', Object.keys(event || {}));
           // MUHIM: Interactions API'da chat ID'si event.interaction.id ichida keladi,
           // event.id emas — shu xato tufayli suhbat tarixi hech qachon davom etmagan.
           if (event?.interaction?.id) interactionId = event.interaction.id;
@@ -458,6 +476,7 @@ export async function POST(req) {
             }
           }
         }
+        console.log('[DEBUG] fullText length at end:', fullText.length);
  
         const { facts, cleanText } = extractFacts(fullText);
  
