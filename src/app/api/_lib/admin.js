@@ -57,8 +57,10 @@ export async function touchUser(email, extra = {}) {
  
   try {
     const now = new Date().toISOString();
+    const today = now.slice(0, 10);
     const existingRaw = await redis.hget(USERS_INDEX_KEY, email);
     const existing = existingRaw ? (typeof existingRaw === 'string' ? JSON.parse(existingRaw) : existingRaw) : null;
+    const isNew = !existing;
  
     const next = {
       name: extra.name || existing?.name || '',
@@ -67,10 +69,43 @@ export async function touchUser(email, extra = {}) {
       lastSeen: now,
     };
     await redis.hset(USERS_INDEX_KEY, { [email]: JSON.stringify(next) });
+ 
+    // Admin statistika grafigi uchun: bugun faol bo'lganlar (SET — bir xil
+    // odam bir necha marta yozsa ham bir marta hisoblanadi) va bugun
+    // birinchi marta kelganlar soni.
+    await redis.sadd(`tg:stats:active:${today}`, email);
+    if (isNew) {
+      await redis.incr(`tg:stats:new:${today}`);
+    }
   } catch (err) {
     // Faollikni belgilay olmasak ham, asosiy funksiya (chat) ishlashda davom etishi kerak.
     console.error('Foydalanuvchi faolligini yozishda xato:', err);
   }
+}
+ 
+/** Oxirgi N kun uchun kunlik "faol foydalanuvchi" va "yangi ro'yxatdan o'tgan" sonlarini qaytaradi. */
+export async function getDailyStats(days = 14) {
+  const redis = getRedis();
+  if (!redis) return [];
+ 
+  const result = [];
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().slice(0, 10);
+    try {
+      const [active, newCount] = await Promise.all([
+        redis.scard(`tg:stats:active:${dateStr}`),
+        redis.get(`tg:stats:new:${dateStr}`),
+      ]);
+      result.push({ date: dateStr, active: active || 0, newUsers: Number(newCount) || 0 });
+    } catch (err) {
+      console.error("Statistikani o'qishda xato:", err);
+      result.push({ date: dateStr, active: 0, newUsers: 0 });
+    }
+  }
+  return result;
 }
  
 export async function listTrackedUsers() {

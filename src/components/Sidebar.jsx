@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { X, Plus, History, Trash2, Search } from 'lucide-react';
 import { formatRelative } from '@/lib/format';
+import { APP_VERSION } from '@/lib/version';
  
 // ============================================================
 // Chapdan chiqadigan panel: "+ Yangi suhbat", qidiruv va suhbatlar ro'yxati.
@@ -110,6 +111,8 @@ export default function Sidebar({ open, sessions, activeSessionId, onClose, onNe
             </button>
           ))}
         </div>
+ 
+        <p className="mt-2 flex-shrink-0 text-center text-[10px] text-[var(--tg-text-4)]">ToshkentGPT v{APP_VERSION}</p>
       </div>
     </div>
   );

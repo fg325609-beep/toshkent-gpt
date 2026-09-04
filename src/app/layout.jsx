@@ -2,23 +2,24 @@ import { Geist, Geist_Mono, Bricolage_Grotesque } from "next/font/google";
 import "./globals.css";
 import RegisterSW from "./register-sw";
 import AuthSessionProvider from "./session-provider";
-
+import ToastContainer from "@/components/ToastContainer";
+ 
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
 });
-
+ 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
-
+ 
 const bricolage = Bricolage_Grotesque({
   variable: "--font-display",
   subsets: ["latin"],
   weight: ["600", "700", "800"],
 });
-
+ 
 const SITE_URL = "https://toshkent-gpt.vercel.app";
 const TITLE = "ToshkentGPT — koʻcha tilida gaplashuvchi AI";
 const SHORT_TITLE = "ToshkentGPT";
@@ -34,7 +35,7 @@ const KEYWORDS = [
   "chatbot",
   "AI Uzbekistan",
 ];
-
+ 
 // To'liq meta-ma'lumotlar: qidiruv tizimlari (SEO) va ijtimoiy tarmoqlarda
 // (Telegram, WhatsApp, Instagram va h.k.) havola ulashilganda chiroyli
 // ko'rinishi uchun. Har bir maydonning vazifasi qisqacha izohlangan.
@@ -99,7 +100,7 @@ export const metadata = {
     images: ["/og-image.png"],
   },
 };
-
+ 
 // Responsivelik uchun: mobil brauzerlarda pinch-zoom bilan chatga xalaqit
 // bermasligi uchun maximumScale cheklangan, lekin foydalanuvchi hali ham
 // tizim sozlamalaridan matn o'lchamini kattalashtira oladi (accessibility).
@@ -113,7 +114,7 @@ export const viewport = {
     { media: "(prefers-color-scheme: light)", color: "#F7F5EF" },
   ],
 };
-
+ 
 export default function RootLayout({ children }) {
   return (
     <html
@@ -131,8 +132,10 @@ export default function RootLayout({ children }) {
           }}
         />
         <AuthSessionProvider>{children}</AuthSessionProvider>
+        <ToastContainer />
         <RegisterSW />
       </body>
     </html>
   );
 }
+ 

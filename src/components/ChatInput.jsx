@@ -30,12 +30,26 @@ export default function ChatInput({
   return (
     <footer className="relative z-10 border-t border-[var(--tg-border)] bg-[var(--tg-bg)] px-3 py-4 sm:px-6">
       <div className="mx-auto max-w-3xl">
-        {planInfo && (planInfo.mode === 'trial' || planInfo.remaining <= 3) && (
-          <div className="mb-2 flex items-center justify-between rounded-lg border border-[var(--tg-border)] bg-[var(--tg-hover)] px-3 py-1.5 text-[11px] text-[var(--tg-text-2)]">
-            <span>
-              {planInfo.mode === 'trial' ? `${planInfo.name} sinovi` : planInfo.name}: {planInfo.remaining}/{planInfo.limit} xabar qoldi
-            </span>
-            {planInfo.resetAt && <span>Soat {formatTime(planInfo.resetAt)}da yangilanadi</span>}
+        {planInfo && typeof planInfo.limit === 'number' && (
+          <div className="mb-2 rounded-lg border border-[var(--tg-border)] bg-[var(--tg-hover)] px-3 py-1.5">
+            <div className="flex items-center justify-between text-[11px] text-[var(--tg-text-2)]">
+              <span>
+                {planInfo.mode === 'trial' ? `${planInfo.name} sinovi` : planInfo.name}: {planInfo.used}/{planInfo.limit} xabar
+              </span>
+              {planInfo.resetAt && planInfo.remaining <= 3 && <span>Soat {formatTime(planInfo.resetAt)}da yangilanadi</span>}
+            </div>
+            <div className="mt-1 h-1 overflow-hidden rounded-full bg-[var(--tg-border)]">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${Math.min(100, Math.round(((planInfo.used || 0) / planInfo.limit) * 100))}%`,
+                  background:
+                    planInfo.remaining <= 3
+                      ? '#EF4444'
+                      : 'linear-gradient(90deg, #E4A93B, #2F9E96)',
+                }}
+              />
+            </div>
           </div>
         )}
  

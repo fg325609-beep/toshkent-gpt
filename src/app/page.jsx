@@ -9,6 +9,8 @@ import { storageKey, loadJSON, saveJSON } from '@/lib/storage';
 import { blankWelcome, stampNow, newSession, freshSession, sessionTitle } from '@/lib/session';
 import { stripMarkdown } from '@/lib/format';
 import { fileToDataUrl, fileToText } from '@/lib/files';
+import { showToast } from '@/lib/toast';
+import { APP_VERSION, CHANGELOG } from '@/lib/version';
  
 import SignInScreen from '@/components/SignInScreen';
 import SplashScreen from '@/components/SplashScreen';
@@ -19,6 +21,7 @@ import Sidebar from '@/components/Sidebar';
 import ChatMessages from '@/components/ChatMessages';
 import ChatInput from '@/components/ChatInput';
 import PlansModal from '@/components/PlansModal';
+import WhatsNewModal from '@/components/WhatsNewModal';
 import { useTheme } from './use-theme';
  
 // ============================================================
@@ -105,6 +108,7 @@ function ToshkentGPT({ user }) {
   const [trialEndInfo, setTrialEndInfo] = useState(null); // { planId, unlockAt }
  
   const [showSplash, setShowSplash] = useState(true);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
  
   const { theme, toggleTheme } = useTheme();
@@ -168,7 +172,7 @@ function ToshkentGPT({ user }) {
         .then((r) => r.json())
         .then((data) => {
           if (data?.ok) {
-            alert(`🎁 Tabriklaymiz! Siz va do'stingiz ${data.days} kunlik Pro tarif (kuniga 60 xabar) oldingiz!`);
+            showToast(`🎁 Tabriklaymiz! Siz va do'stingiz ${data.days} kunlik Pro tarif (kuniga 60 xabar) oldingiz!`, 'success', 6000);
           }
         })
         .catch(() => {});
@@ -197,9 +201,32 @@ function ToshkentGPT({ user }) {
       })
       .catch(() => {});
  
+    // Joriy tarif/limit holatini ham darhol olib kelamiz — shunda
+    // pastdagi progress-chiziq birinchi xabar yuborilishidan oldin ham ko'rinadi.
+    fetch('/api/plan')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((plan) => {
+        if (plan) setPlanInfo(plan);
+      })
+      .catch(() => {});
+ 
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail]);
+ 
+  // --- Yangilanish bo'lganda ("Nimalar yangilandi?") — FAQAT eski
+  // foydalanuvchilarga, yangi ro'yxatdan o'tganlar allaqachon tanishuv
+  // jarayonidan o'tayotgani uchun ularga ortiqcha. ---
+  useEffect(() => {
+    if (!hydrated) return;
+    const lastSeenVersion = localStorage.getItem('tg-last-seen-version');
+    if (lastSeenVersion === APP_VERSION) return;
+ 
+    const isExistingUser = Boolean(loadJSON(PROFILE_KEY, {})?.onboarded);
+    localStorage.setItem('tg-last-seen-version', APP_VERSION);
+    if (isExistingUser) setWhatsNewOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
  
   // --- Har bir o'zgarishda joriy suhbatni saqlab boramiz ("istoriya") ---
   useEffect(() => {
@@ -308,16 +335,16 @@ function ToshkentGPT({ user }) {
       const res = await fetch('/api/telegram/link-token', { method: 'POST' });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.token) {
-        alert(data?.error || "Telegram bilan bog'lashda xatolik yuz berdi.");
+        showToast(data?.error || "Telegram bilan bog'lashda xatolik yuz berdi.", 'error');
         return;
       }
       if (!data.botUsername) {
-        alert("Telegram bot hali sozlanmagan (.env.local'da TELEGRAM_BOT_USERNAME yo'q).");
+        showToast("Telegram bot hali sozlanmagan (.env.local'da TELEGRAM_BOT_USERNAME yo'q).", 'error');
         return;
       }
       window.open(`https://t.me/${data.botUsername}?start=${data.token}`, '_blank');
     } catch {
-      alert("Telegram bilan bog'lashda xatolik yuz berdi.");
+      showToast("Telegram bilan bog'lashda xatolik yuz berdi.", 'error');
     }
   }
  
@@ -699,7 +726,7 @@ function ToshkentGPT({ user }) {
       });
       setPlansOpen(false);
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, 'error');
     } finally {
       setTrialStarting(false);
     }
@@ -840,6 +867,13 @@ function ToshkentGPT({ user }) {
         onRequestUpgrade={requestUpgrade}
         onGoToPayFromTrialEnd={goToPayFromTrialEnd}
         onBackToList={() => setPlansView('list')}
+      />
+ 
+      <WhatsNewModal
+        open={whatsNewOpen}
+        version={APP_VERSION}
+        items={CHANGELOG[0]?.items || []}
+        onClose={() => setWhatsNewOpen(false)}
       />
     </div>
   );

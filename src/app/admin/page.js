@@ -13,10 +13,56 @@ import {
   ChevronUp,
   UserPlus,
   Shield,
+  TrendingUp,
 } from 'lucide-react';
 import { formatRelative } from '@/lib/format';
+import { showToast } from '@/lib/toast';
  
 const PIN_SESSION_KEY = 'tg-admin-unlocked';
+ 
+// Oddiy, kutubxonasiz "ustunli grafik" — oxirgi 14 kunlik faol
+// foydalanuvchilar sonini ko'rsatadi. Piksel balandliklardan foydalanamiz
+// (foizli emas), chunki flexbox ichida foizli balandlik ishonchli
+// ishlamaydi.
+function StatsChart({ data }) {
+  if (!data || data.length === 0) return null;
+  const CHART_H = 110;
+  const max = Math.max(1, ...data.map((d) => d.active));
+ 
+  return (
+    <div className="rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-4">
+      <h3 className="mb-4 flex items-center gap-2 text-sm font-bold">
+        <TrendingUp size={15} /> Oxirgi 14 kun — faol foydalanuvchilar
+      </h3>
+      <div className="flex items-end gap-1" style={{ height: CHART_H + 18 }}>
+        {data.map((d) => {
+          const barPx = Math.max(Math.round((d.active / max) * CHART_H), d.active > 0 ? 6 : 2);
+          const dayLabel = new Date(d.date).getDate();
+          return (
+            <div
+              key={d.date}
+              className="group relative flex flex-1 flex-col items-center justify-end"
+              style={{ height: CHART_H + 18 }}
+            >
+              <div className="pointer-events-none absolute -top-1 hidden -translate-y-full whitespace-nowrap rounded-md border border-[var(--tg-border)] bg-[var(--tg-bg)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--tg-text-1)] group-hover:block">
+                {d.active} faol {d.newUsers > 0 ? `· +${d.newUsers} yangi` : ''}
+              </div>
+              <div
+                className="w-full rounded-t"
+                style={{
+                  height: barPx,
+                  background: 'linear-gradient(180deg, #E4A93B, #2F9E96)',
+                  opacity: d.active > 0 ? 1 : 0.2,
+                }}
+              />
+              <span className="mt-1 text-[9px] text-[var(--tg-text-4)]">{dayLabel}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
  
 // ============================================================
 // Admin paneli — endi UCH BOSQICHLI himoya bilan:
@@ -123,6 +169,7 @@ export default function AdminPage() {
 // ============================================================
 function Dashboard() {
   const [stats, setStats] = useState({ total: 0, onlineCount: 0 });
+  const [dailyStats, setDailyStats] = useState([]);
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(true);
   const [expandedEmail, setExpandedEmail] = useState(null);
@@ -148,6 +195,16 @@ function Dashboard() {
       // Jimgina — jadval bo'sh ko'rinadi
     } finally {
       setUsersLoading(false);
+    }
+  }
+ 
+  async function loadStats() {
+    try {
+      const res = await fetch('/api/admin/stats');
+      const data = await res.json();
+      if (res.ok) setDailyStats(data.days || []);
+    } catch {
+      // jim — grafik shunchaki ko'rinmaydi
     }
   }
  
@@ -177,6 +234,7 @@ function Dashboard() {
  
   useEffect(() => {
     loadUsers();
+    loadStats();
     loadRequests();
     loadAdmins();
     // Onlayn holatni yangilab turish uchun har 30 soniyada ro'yxatni qayta yuklaymiz.
@@ -195,7 +253,7 @@ function Dashboard() {
       if (!res.ok) throw new Error((await res.json())?.error || 'Xatolik');
       setRequests((prev) => prev.filter((r) => r.id !== id));
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, 'error');
     } finally {
       setApprovingId(null);
     }
@@ -247,6 +305,8 @@ function Dashboard() {
             </div>
           </div>
         </div>
+ 
+        <StatsChart data={dailyStats} />
  
         {/* --- Foydalanuvchilar jadvali --- */}
         <section>
