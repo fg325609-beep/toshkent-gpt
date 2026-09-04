@@ -35,6 +35,7 @@ export const maxDuration = 60;
  
 const API_KEY = process.env.GEMINI_API_KEY;
 const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const SITE_URL = 'https://toshkent-gpt.vercel.app';
  
 const linkTokenKey = (token) => `tg:tglink-token:${token}`;
 const linkedEmailKey = (tgUserId) => `tg:telegram-link:${tgUserId}`;
@@ -89,7 +90,7 @@ export async function POST(req) {
       } else {
         await sendTelegramMessage(
           chatId,
-          "Bu havola eskirgan yoki noto'g'ri (10 daqiqadan keyin muddati tugaydi). Saytda Sozlamalar → \"Telegram bilan bog'lash\"ni qayta bosib ko'r."
+          `Bu havola eskirgan yoki noto'g'ri (10 daqiqadan keyin muddati tugaydi). Saytga qayta kirib, Sozlamalar → "Telegram bilan bog'lash"ni bosing:\n${SITE_URL}`
         );
       }
       return Response.json({ ok: true });
@@ -97,7 +98,7 @@ export async function POST(req) {
  
     await sendTelegramMessage(
       chatId,
-      "Salom, men ToshkentGPT — koʻcha tilida gaplashadigan yordamchiman! 🤖\n\nMendan foydalanish uchun avval hisobingizni bog'lashingiz kerak:\n1. Saytga kiring\n2. Sozlamalar (⚙️) tugmasini bosing\n3. \"Telegram bilan bog'lash\"ni tanlang"
+      `Salom, men ToshkentGPT — koʻcha tilida gaplashadigan yordamchiman! 🤖\n\nMendan foydalanish uchun avval hisobingizni bog'lashingiz kerak:\n1. Saytga kiring: ${SITE_URL}\n2. Sozlamalar (⚙️) tugmasini bosing\n3. "Telegram bilan bog'lash"ni tanlang`
     );
     return Response.json({ ok: true });
   }
@@ -106,7 +107,7 @@ export async function POST(req) {
   if (!email) {
     await sendTelegramMessage(
       chatId,
-      "Hali hisobingiz bog'lanmagan, jigar 🙂\n\nSaytga kiring → Sozlamalar (⚙️) → \"Telegram bilan bog'lash\""
+      `Hali hisobingiz bog'lanmagan, jigar 🙂\n\nSaytga kiring → Sozlamalar (⚙️) → "Telegram bilan bog'lash":\n${SITE_URL}`
     );
     return Response.json({ ok: true });
   }
@@ -267,3 +268,4 @@ export async function POST(req) {
 export async function GET() {
   return Response.json({ ok: true, message: 'ToshkentGPT Telegram webhook ishlamoqda.' });
 }
+ 

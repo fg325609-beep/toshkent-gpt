@@ -28,6 +28,7 @@ export async function POST() {
     return Response.json({ error: 'Xatolik yuz berdi' }, { status: 500 });
   }
  
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME || null;
+  const botUsername = (process.env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, '') || null;
   return Response.json({ token, botUsername });
 }
+ 
