@@ -2,7 +2,7 @@
  
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User, Info, Users, Languages, Send } from 'lucide-react';
+import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User, Info, Users, Languages, Send, BrainCircuit } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { PLANS } from '@/app/plans';
  
@@ -189,6 +189,15 @@ export default function Header({
               >
                 <Info size={14} />
                 ToshkentGPT haqida
+              </Link>
+ 
+              <Link
+                href="/mening-malumotlarim"
+                onClick={onCloseNavMenu}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
+              >
+                <BrainCircuit size={14} />
+                Men haqimda nima bilasan?
               </Link>
  
               <Link

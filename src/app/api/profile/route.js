@@ -38,3 +38,32 @@ export async function POST(req) {
   return Response.json({ ok: true });
 }
  
+// "Men haqimda nima bilasan?" sahifasi uchun — bitta faktni yoki (kalit
+// berilmasa) butun profilni o'chiradi. Foydalanuvchi o'zi haqidagi
+// ma'lumotlarni nazorat qila olishi kerak (shaffoflik).
+export async function DELETE(req) {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) {
+    return Response.json({ error: 'Kirish talab qilinadi.' }, { status: 401 });
+  }
+ 
+  const body = await req.json().catch(() => ({}));
+  const key = body?.key;
+ 
+  try {
+    if (key) {
+      const current = await getUserProfile(email);
+      delete current[key];
+      await saveUserProfile(email, current);
+    } else {
+      await saveUserProfile(email, {});
+    }
+  } catch (err) {
+    console.error('Profil oʻchirishda xato:', err);
+    return Response.json({ error: 'Xatolik yuz berdi.' }, { status: 500 });
+  }
+ 
+  return Response.json({ ok: true });
+}
+ 
