@@ -1,11 +1,12 @@
+
 import { getRedis } from './redis';
 import { PLANS } from '../../plans';
-
+ 
 function todayKey() {
   // Server vaqti bo'yicha kunlik limit sanog'i (YYYY-MM-DD).
   return new Date().toISOString().slice(0, 10);
 }
-
+ 
 function defaultState() {
   return {
     plan: 'lite',
@@ -13,21 +14,21 @@ function defaultState() {
     usage: { date: todayKey(), count: 0, windowStart: null },
   };
 }
-
+ 
 function userKey(email) {
   return `tg:user:${email}`;
 }
-
+ 
 export async function getUserState(email) {
   const redis = getRedis();
   if (!redis || !email) return defaultState();
-
-  // Redis noto'g'ri sozlangan yoki vaqtincha ulanmasa ham,
-  // /api/chat butunlay 500 bilan qulab tushmasin.
+ 
+  // Redis noto'g'ri sozlangan (masalan xato token) yoki vaqtincha ulanmasa ham,
+  // /api/chat butunlay 500 bilan qulab tushmasin — Lite holatiga tushib ishlashda davom etadi.
   try {
     const raw = await redis.get(userKey(email));
     if (!raw) return defaultState();
-
+ 
     const state = typeof raw === 'string' ? JSON.parse(raw) : raw;
     return { ...defaultState(), ...state, usage: { ...defaultState().usage, ...(state.usage || {}) } };
   } catch (err) {
@@ -35,20 +36,20 @@ export async function getUserState(email) {
     return defaultState();
   }
 }
-
+ 
 export async function saveUserState(email, state) {
   const redis = getRedis();
   if (!redis || !email) return;
   await redis.set(userKey(email), JSON.stringify(state));
 }
-
+ 
 // Foydalanuvchining HOZIRGI foydalanish oynasi holatini hisoblaydi.
 //  - cooldownHours berilsa: "aylanma oyna" — limitga yetilgan payitdan aynan shuncha
 //    soat o'tgach, hisob avtomatik nolga tushadi (masalan Pro bepul sinovi: 3 soatda 1 marta).
 //  - berilmasa: kalendar kuni bo'yicha (har kuni yarim tunda nolga tushadi) — oddiy kunlik limit.
 export function getUsageWindow(state, cooldownHours) {
   const now = Date.now();
-
+ 
   if (cooldownHours) {
     const windowMs = cooldownHours * 60 * 60 * 1000;
     const windowStart = state.usage?.windowStart ? new Date(state.usage.windowStart).getTime() : 0;
@@ -57,12 +58,12 @@ export function getUsageWindow(state, cooldownHours) {
     const unlockAt = fresh ? null : new Date(windowStart + windowMs).toISOString();
     return { count, unlockAt, fresh };
   }
-
+ 
   const sameDay = state.usage?.date === todayKey();
   const count = sameDay ? state.usage?.count || 0 : 0;
   return { count, unlockAt: null, fresh: !sameDay };
 }
-
+ 
 // Muvaffaqiyatli javobdan keyin sanoqni +1 qiladi — oyna turiga (kunlik/aylanma) mos ravishda.
 export function recordUsage(state, cooldownHours) {
   if (cooldownHours) {
@@ -75,7 +76,7 @@ export function recordUsage(state, cooldownHours) {
     };
     return state;
   }
-
+ 
   const sameDay = state.usage?.date === todayKey();
   state.usage = {
     ...state.usage,
@@ -84,7 +85,7 @@ export function recordUsage(state, cooldownHours) {
   };
   return state;
 }
-
+ 
 // Foydalanuvchining hozirgi holatiga qarab, unga QAYSI tarif AMALDA ekanini va qanday
 // rejimda (active / trial / downgraded) ekanini aniqlaydi.
 //  - lite: doim faol (bepul, kunlik limit bilan)
@@ -94,17 +95,17 @@ export function recordUsage(state, cooldownHours) {
 export function resolveEffectivePlan(state) {
   const now = Date.now();
   const hasActiveSub = state.planExpiresAt && new Date(state.planExpiresAt).getTime() > now;
-
+ 
   if (state.plan === 'lite' || !PLANS[state.plan]) {
     return { plan: PLANS.lite, mode: 'active' };
   }
-
+ 
   if (hasActiveSub) {
     return { plan: PLANS[state.plan], mode: 'active' };
   }
-
+ 
   const plan = PLANS[state.plan];
-
+ 
   if (plan?.trial) {
     const win = getUsageWindow(state, plan.trial.cooldownHours);
     if (win.count < plan.trial.limit) {
@@ -112,10 +113,10 @@ export function resolveEffectivePlan(state) {
     }
     return { plan: PLANS.lite, mode: 'downgraded', wantedPlan: plan, unlockAt: win.unlockAt };
   }
-
+ 
   return { plan: PLANS.lite, mode: 'downgraded', wantedPlan: plan, unlockAt: null };
 }
-
+ 
 export async function setUserPlan(email, planId, months = 1) {
   const state = await getUserState(email);
   const now = new Date();
@@ -124,8 +125,30 @@ export async function setUserPlan(email, planId, months = 1) {
       ? new Date(state.planExpiresAt)
       : now;
   base.setMonth(base.getMonth() + months);
-
+ 
   const next = { ...state, plan: planId, planExpiresAt: base.toISOString() };
   await saveUserState(email, next);
   return next;
 }
+ 
+// Referral kabi qisqa muddatli sovg'alar uchun — OYLAB emas, KUNLAB tarif beradi.
+// Agar foydalanuvchida allaqachon YUQORIROQ (yoki bir xil) pullik tarif faol bo'lsa,
+// uni pastga tushirmaymiz — faqat Lite'da bo'lsa yoki xuddi shu tarifda bo'lsa yangilanadi.
+export async function grantBonusDays(email, planId, days) {
+  const state = await getUserState(email);
+  const now = new Date();
+ 
+  const shouldUpgrade = state.plan === 'lite' || state.plan === planId;
+  if (!shouldUpgrade) return state;
+ 
+  const base =
+    state.planExpiresAt && new Date(state.planExpiresAt).getTime() > now.getTime()
+      ? new Date(state.planExpiresAt)
+      : now;
+  base.setDate(base.getDate() + days);
+ 
+  const next = { ...state, plan: planId, planExpiresAt: base.toISOString() };
+  await saveUserState(email, next);
+  return next;
+}
+ 

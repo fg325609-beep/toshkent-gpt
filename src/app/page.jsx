@@ -27,6 +27,17 @@ import { useTheme } from './use-theme';
 export default function ToshkentGPTGate() {
   const { data: authData, status } = useSession();
  
+  // Referral havolasi orqali kirilgan bo'lsa ("?ref=KOD"), buni ENG BIRINCHI
+  // fursatda (hali tizimga kirmagan bo'lsa ham) saqlab qo'yamiz — chunki
+  // Google orqali kirish (redirect) jarayonida URL'dagi parametr yo'qolib
+  // qolishi mumkin, localStorage esa saqlanib qoladi.
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get('ref');
+    if (ref) {
+      localStorage.setItem('tg-pending-referral', ref.toUpperCase().trim());
+    }
+  }, []);
+ 
   if (status === 'loading') {
     return (
       <div className="flex h-dvh items-center justify-center bg-[var(--tg-bg)]">
@@ -142,6 +153,26 @@ function ToshkentGPT({ user }) {
     setHydrated(true);
  
     const t = setTimeout(() => setShowSplash(false), 1400);
+ 
+    // Referral havolasi orqali kirgan bo'lsa (ToshkentGPTGate localStorage'ga
+    // yozib qo'ygan), shu yerda "ishlatib" qo'yamiz — natija (bonus yoki xato)
+    // haqida bir marta bildirishnoma ko'rsatamiz, keyin izni tozalaymiz.
+    const pendingRef = localStorage.getItem('tg-pending-referral');
+    if (pendingRef) {
+      localStorage.removeItem('tg-pending-referral');
+      fetch('/api/referral/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: pendingRef }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.ok) {
+            alert(`🎁 Tabriklaymiz! Siz va do'stingiz ${data.days} kunlik Pro tarif (kuniga 60 xabar) oldingiz!`);
+          }
+        })
+        .catch(() => {});
+    }
  
     // Serverdagi (Redis) profilni ham olib kelamiz — bu qurilmalar orasida
     // haqiqiy manba hisoblanadi (localStorage faqat shu brauzerga xos "kesh").
@@ -270,6 +301,24 @@ function ToshkentGPT({ user }) {
       }).catch(() => {});
       return next;
     });
+  }
+ 
+  async function connectTelegram() {
+    try {
+      const res = await fetch('/api/telegram/link-token', { method: 'POST' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.token) {
+        alert(data?.error || "Telegram bilan bog'lashda xatolik yuz berdi.");
+        return;
+      }
+      if (!data.botUsername) {
+        alert("Telegram bot hali sozlanmagan (.env.local'da TELEGRAM_BOT_USERNAME yo'q).");
+        return;
+      }
+      window.open(`https://t.me/${data.botUsername}?start=${data.token}`, '_blank');
+    } catch {
+      alert("Telegram bilan bog'lashda xatolik yuz berdi.");
+    }
   }
  
   function stopGeneration() {
@@ -723,6 +772,7 @@ function ToshkentGPT({ user }) {
         onCloseAvatarMenu={() => setMenuOpen(false)}
         onOpenHistory={() => setHistoryOpen(true)}
         onNewChat={handleNewChat}
+        onConnectTelegram={connectTelegram}
       />
  
       {errorBanner && (
