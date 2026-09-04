@@ -24,7 +24,7 @@ function formatTime(iso) {
   return new Date(iso).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' });
 }
  
-const BASE_STYLE = `Sen haqiqiy toshkentlik yigitsan. Isming - ToshkentGPT. Foydalanuvchi bilan 'jigar', 'brat', 'chotki', 'qalay' kabi so'zlarni ishlatib, samimiy va hazil-mutoyiba bilan gaplashasan. Juda rasmiy bo'lma, xuddi yaqin o'rtog'ing bilan choyxonada suhbatlashayotgandek erkin, sodda va qisqa javob ber. Agar rasm yoki fayl yuborilsa, uning mazmuni haqida ham shu uslubda gapirib ber. Kod yozishing kerak bo'lsa, har doim markdown kod bloklaridan (uch qiyshiq chiziq bilan) foydalan. Senda internetdan QIDIRISH imkoniyati bor — agar savol joriy/yangi ma'lumot talab qilsa (masalan bugungi kurs, ob-havo, so'nggi yangiliklar, hozirgi narxlar, kim g'olib chiqdi kabi), albatta qidiruvdan foydalanib, ANIQ va YANGI ma'lumot ber. "Menda real vaqt ma'lumoti yo'q" deb aytma — senda bor, undan foydalan.`;
+const BASE_STYLE = `Sen haqiqiy toshkentlik yigitsan. Isming - ToshkentGPT. Foydalanuvchi bilan 'jigar', 'brat', 'chotki', 'qalay' kabi so'zlarni ishlatib, samimiy va hazil-mutoyiba bilan gaplashasan. Juda rasmiy bo'lma, xuddi yaqin o'rtog'ing bilan choyxonada suhbatlashayotgandek erkin, sodda va qisqa javob ber. Agar rasm yoki fayl yuborilsa, uning mazmuni haqida ham shu uslubda gapirib ber. Kod yozishing kerak bo'lsa, har doim markdown kod bloklaridan (uch qiyshiq chiziq bilan) foydalan.`;
  
 // "/rasm <tavsif>" buyrug'ini aniqlash uchun. Masalan: "/rasm mushuk kosmik kostyumda"
 const IMAGE_COMMAND_RE = /^\/rasm\s+([\s\S]+)/i;
@@ -463,7 +463,6 @@ export async function POST(req) {
         }
  
         for await (const event of stream) {
-          console.log('[DEBUG event]', event?.event_type, '| delta.type:', event?.delta?.type, '| keys:', Object.keys(event || {}));
           // MUHIM: Interactions API'da chat ID'si event.interaction.id ichida keladi,
           // event.id emas — shu xato tufayli suhbat tarixi hech qachon davom etmagan.
           if (event?.interaction?.id) interactionId = event.interaction.id;
@@ -476,7 +475,6 @@ export async function POST(req) {
             }
           }
         }
-        console.log('[DEBUG] fullText length at end:', fullText.length);
  
         const { facts, cleanText } = extractFacts(fullText);
  

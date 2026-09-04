@@ -1,239 +1,816 @@
 'use client';
  
-import { useEffect, useRef } from 'react';
-import Link from 'next/link';
-import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User, Info, Users, Languages } from 'lucide-react';
-import { signOut } from 'next-auth/react';
-import { PLANS } from '@/app/plans';
+import { useEffect, useRef, useState } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
  
-// Ochiq menyu tashqarisiga bosilganda uni yopadi. Avval bu "butun ekranni
-// qoplaydigan ko'rinmas parda" (fixed inset-0 overlay) orqali qilinardi, lekin
-// u ba'zan haqiqiy sichqoncha bosishini menyu ichidagi tugmalarga
-// yetkazmay, o'zi "yutib" yuborayotgan edi.
-//
-// MUHIM: bu yerda aynan 'click' hodisasi ishlatiladi, 'pointerdown' emas —
-// 'pointerdown' juda erta (sichqoncha tugmasi bosilgan zahoti) ishga
-// tushadi va menyuni ULGURMASDAN yopib qo'yishi mumkin edi, natijada
-// bosilgan tugmaning o'z vazifasi (mavzuni almashtirish, sahifaga o'tish)
-// hech qachon bajarilmay qolardi. 'click' esa bosib-qo'yib yuborish TO'LIQ
-// yakunlangandan keyin ishga tushadi — shu sabab avval ichkaridagi tugma
-// o'z ishini bajaradi, keyin kerak bo'lsa menyu yopiladi.
-function useCloseOnOutsideClick(open, onClose, ref) {
+import { PLANS } from './plans';
+import { storageKey, loadJSON, saveJSON } from '@/lib/storage';
+import { blankWelcome, stampNow, newSession, freshSession, sessionTitle } from '@/lib/session';
+import { stripMarkdown } from '@/lib/format';
+import { fileToDataUrl, fileToText } from '@/lib/files';
+ 
+import SignInScreen from '@/components/SignInScreen';
+import SplashScreen from '@/components/SplashScreen';
+import OnboardingFlow from '@/components/OnboardingFlow';
+import GirihPattern from '@/components/GirihPattern';
+import Header from '@/components/Header';
+import Sidebar from '@/components/Sidebar';
+import ChatMessages from '@/components/ChatMessages';
+import ChatInput from '@/components/ChatInput';
+import PlansModal from '@/components/PlansModal';
+import { useTheme } from './use-theme';
+ 
+// ============================================================
+// Kirish darvozasi — avval Google orqali autentifikatsiyani tekshiradi.
+// ============================================================
+export default function ToshkentGPTGate() {
+  const { data: authData, status } = useSession();
+ 
+  if (status === 'loading') {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-[var(--tg-bg)]">
+        <img src="/icons/logo-header.png" alt="ToshkentGPT" className="tg-splash-logo h-16 w-16" />
+      </div>
+    );
+  }
+ 
+  if (status !== 'authenticated') {
+    return <SignInScreen />;
+  }
+ 
+  return <ToshkentGPT user={authData.user} />;
+}
+ 
+// ============================================================
+// Asosiy chat ilovasi — foydalanuvchi tasdiqlangandan keyingina ishga tushadi.
+// Bu komponent barcha holatni (state) o'zida ushlaydi va uni pastki
+// komponentlarga (Header, Sidebar, ChatMessages, ChatInput, modallar) props
+// orqali uzatadi. Har bir komponentning o'zi qanday ko'rinishini
+// src/components/ papkasidagi tegishli faylida ko'rish mumkin.
+// ============================================================
+function ToshkentGPT({ user }) {
+  const router = useRouter();
+  const userEmail = user?.email || null;
+  const SESSIONS_KEY = storageKey('toshkentgpt.sessions.v1', userEmail);
+  const ACTIVE_KEY = storageKey('toshkentgpt.activeId.v1', userEmail);
+  const ALIVE_KEY = storageKey('toshkentgpt.alive', userEmail);
+  const PROFILE_KEY = storageKey('toshkentgpt.profile.v1', userEmail);
+ 
+  const [session, setSession] = useState(newSession);
+  const [sessions, setSessions] = useState([]);
+  const [profile, setProfile] = useState({});
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorBanner, setErrorBanner] = useState(null);
+  const [listening, setListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
+  const [ttsSupported, setTtsSupported] = useState(true);
+  const [copiedId, setCopiedId] = useState(null);
+  const [speakingId, setSpeakingId] = useState(null);
+  const [attachment, setAttachment] = useState(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [navMenuOpen, setNavMenuOpen] = useState(false);
+ 
+  // --- Ro'yxatdan o'tishdagi bosqichli tanishuv (ism-familiya so'rash) ---
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [obStep, setObStep] = useState(1);
+  const [obIsm, setObIsm] = useState('');
+  const [obFamiliya, setObFamiliya] = useState('');
+ 
+  // Tarif belgisi (Sozlamalar menyusidagi "Lite"/"Pro" kabi yozuv) uchun —
+  // /tariflar va /shikoyat endi alohida sahifalar, shu yerda faqat hozirgi
+  // tarifni bilib turish kifoya.
+  const [planInfo, setPlanInfo] = useState(null); // { id, name, mode, limit, used, remaining, resetAt }
+ 
+  // PlansModal — endi faqat chatda limitga/sinov muddatiga yetilganda ("interrupt"
+  // sifatida) ochiladi. Oddiy "Tariflar" havolasi esa alohida /tariflar sahifasiga olib boradi.
+  const [plansOpen, setPlansOpen] = useState(false);
+  const [plansView, setPlansView] = useState('list'); // list | trial-ended | pay
+  const [paymentPlanId, setPaymentPlanId] = useState('pro');
+  const [paymentStatus, setPaymentStatus] = useState('idle'); // idle | sending | sent | error
+  const [trialStarting, setTrialStarting] = useState(false);
+  const [trialEndInfo, setTrialEndInfo] = useState(null); // { planId, unlockAt }
+ 
+  const [showSplash, setShowSplash] = useState(true);
+  const [hydrated, setHydrated] = useState(false);
+ 
+  const { theme, toggleTheme } = useTheme();
+ 
+  const textareaRef = useRef(null);
+  const scrollAnchorRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const abortRef = useRef(null);
+ 
+  // --- Ilova ochilganda: profil + suhbatlarni tiklash ---
+  // Agar bu shunchaki sahifa yangilanishi bo'lsa (F5), oxirgi suhbat davom etadi.
+  // Agar ilova haqiqatan yopib qayta ochilgan bo'lsa (yangi tab/oyna), yangi suhbat
+  // boshlanadi — eski suhbat esa "Tarix"da saqlanib qoladi.
   useEffect(() => {
-    if (!open) return;
-    function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) {
-        onClose?.();
+    const storedProfile = loadJSON(PROFILE_KEY, {});
+    setProfile(storedProfile);
+ 
+    // Foydalanuvchi birinchi marta kirgan (hali tanishuv o'tmagan) bo'lsa — ism-familiya
+    // so'raymiz. Google hisobidan kelgan ism-familiyani standart qiymat sifatida to'ldirib qo'yamiz.
+    if (!storedProfile?.onboarded) {
+      const [gFirst, ...gRest] = (user?.name || '').trim().split(/\s+/).filter(Boolean);
+      setObIsm(gFirst || '');
+      setObFamiliya(gRest.join(' ') || '');
+      setObStep(1);
+      setOnboardingOpen(true);
+    }
+ 
+    const stored = loadJSON(SESSIONS_KEY, []);
+    const wasAlive = sessionStorage.getItem(ALIVE_KEY);
+    const firstName = storedProfile?.ism;
+ 
+    if (wasAlive && stored.length > 0) {
+      const activeId = localStorage.getItem(ACTIVE_KEY);
+      setSessions(stored);
+      setSession(stored.find((s) => s.id === activeId) || stored[0]);
+    } else {
+      const fresh = freshSession(firstName);
+      const next = [fresh, ...stored];
+      setSessions(next);
+      setSession(fresh);
+      saveJSON(SESSIONS_KEY, next);
+      localStorage.setItem(ACTIVE_KEY, fresh.id);
+    }
+    sessionStorage.setItem(ALIVE_KEY, '1');
+    setHydrated(true);
+ 
+    const t = setTimeout(() => setShowSplash(false), 1400);
+ 
+    // Serverdagi (Redis) profilni ham olib kelamiz — bu qurilmalar orasida
+    // haqiqiy manba hisoblanadi (localStorage faqat shu brauzerga xos "kesh").
+    // Masalan boshqa qurilmada tanishuvdan o'tgan bo'lsa, shu yerda bilib olamiz.
+    fetch('/api/profile')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((serverProfile) => {
+        if (!serverProfile || !Object.keys(serverProfile).length) return;
+        setProfile((prev) => {
+          const next = { ...prev, ...serverProfile };
+          saveJSON(PROFILE_KEY, next);
+          return next;
+        });
+        if (serverProfile.onboarded) setOnboardingOpen(false);
+        if (serverProfile.ism) {
+          setSession((prev) =>
+            prev.messages.length === 1 && prev.messages[0].id === 'welcome'
+              ? { ...prev, messages: [stampNow(blankWelcome(serverProfile.ism))] }
+              : prev
+          );
+        }
+      })
+      .catch(() => {});
+ 
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userEmail]);
+ 
+  // --- Har bir o'zgarishda joriy suhbatni saqlab boramiz ("istoriya") ---
+  useEffect(() => {
+    if (!hydrated) return;
+    setSessions((prev) => {
+      const next = prev.some((s) => s.id === session.id)
+        ? prev.map((s) => (s.id === session.id ? session : s))
+        : [session, ...prev];
+      saveJSON(SESSIONS_KEY, next);
+      return next;
+    });
+    localStorage.setItem(ACTIVE_KEY, session.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, hydrated]);
+ 
+  useEffect(() => {
+    scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [session.messages, isLoading]);
+ 
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [input]);
+ 
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      setSpeechSupported(false);
+    } else {
+      const rec = new SR();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = 'uz-UZ';
+      rec.onresult = (e) => {
+        const transcript = e.results?.[0]?.[0]?.transcript || '';
+        setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+      };
+      rec.onerror = () => setListening(false);
+      rec.onend = () => setListening(false);
+      recognitionRef.current = rec;
+    }
+    if (!window.speechSynthesis) setTtsSupported(false);
+  }, []);
+ 
+  function updateMessages(updater) {
+    setSession((prev) => {
+      const messages = updater(prev.messages);
+      return { ...prev, messages, title: sessionTitle(messages), updatedAt: new Date().toISOString() };
+    });
+  }
+ 
+  function addMessage(role, content, extra = {}) {
+    const msg = { id: crypto.randomUUID(), role, content, time: new Date().toISOString(), ...extra };
+    updateMessages((prev) => [...prev, msg]);
+    return msg;
+  }
+ 
+  // Tanishuv oxirida (yoki o'tkazib yuborilganda) chaqiriladi — ismni profilga
+  // (demak, xotiraga) yozib qo'yamiz va ochilish xabarini yangi ism bilan yangilaymiz.
+  function finishOnboarding({ skip } = {}) {
+    const ism = skip ? '' : obIsm.trim();
+    const familiya = skip ? '' : obFamiliya.trim();
+ 
+    setProfile((prev) => {
+      const next = { ...prev, onboarded: true };
+      if (ism) next.ism = ism;
+      if (familiya) next.familiya = familiya;
+      saveJSON(PROFILE_KEY, next);
+      // Serverga (Redis) ham yozamiz — shunda boshqa qurilmadan kirsa ham
+      // qayta so'ralmaydi. Tarmoq xatosi bo'lsa ham interfeysni to'smaymiz.
+      fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      }).catch(() => {});
+      return next;
+    });
+ 
+    if (ism) {
+      setSession((prev) =>
+        prev.messages.length === 1 && prev.messages[0].id === 'welcome'
+          ? { ...prev, messages: [stampNow(blankWelcome(ism))] }
+          : prev
+      );
+    }
+    setOnboardingOpen(false);
+  }
+ 
+  function changeLanguage(lang) {
+    setProfile((prev) => {
+      const next = { ...prev, til: lang };
+      saveJSON(PROFILE_KEY, next);
+      fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      }).catch(() => {});
+      return next;
+    });
+  }
+ 
+  async function connectTelegram() {
+    try {
+      const res = await fetch('/api/telegram/link-token', { method: 'POST' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.token) {
+        alert(data?.error || "Telegram bilan bog'lashda xatolik yuz berdi.");
+        return;
+      }
+      if (!data.botUsername) {
+        alert("Telegram bot hali sozlanmagan (.env.local'da TELEGRAM_BOT_USERNAME yo'q).");
+        return;
+      }
+      window.open(`https://t.me/${data.botUsername}?start=${data.token}`, '_blank');
+    } catch {
+      alert("Telegram bilan bog'lashda xatolik yuz berdi.");
+    }
+  }
+ 
+  function stopGeneration() {
+    abortRef.current?.abort();
+  }
+ 
+  async function handleSendText(overrideText) {
+    const text = (overrideText ?? input).trim();
+    if ((!text && !attachment) || isLoading) return;
+ 
+    const currentAttachment = attachment;
+    const previousInteractionId = session.lastInteractionId;
+ 
+    setInput('');
+    setAttachment(null);
+ 
+    // Serverga yuboriladigan yakuniy matn/rasm shu yerda tayyorlanadi — bir xil
+    // qiymatlar keyinroq "qayta generatsiya qilish" (regenerate) uchun ham
+    // xabar ichida saqlab qo'yiladi (apiText/apiImage), aks holda regenerate
+    // vaqtida fayl matnini yoki rasmni qayta qurib bo'lmaydi.
+    let finalText = text;
+    let imagePayload;
+    let pdfPayload;
+ 
+    if (currentAttachment?.kind === 'image') {
+      imagePayload = {
+        mimeType: currentAttachment.mimeType,
+        data: currentAttachment.dataUrl.split(',')[1],
+      };
+      if (!finalText) finalText = 'Bu rasmda nima borligini aytib ber.';
+    } else if (currentAttachment?.kind === 'pdf') {
+      pdfPayload = { data: currentAttachment.dataUrl.split(',')[1], name: currentAttachment.name };
+      if (!finalText) finalText = 'Bu PDF faylda nima yozilganini tushuntirib ber.';
+    } else if (currentAttachment?.kind === 'text') {
+      finalText = `${finalText}\n\n[Fayl: ${currentAttachment.name}]\n${currentAttachment.text.slice(0, 6000)}`;
+    } else if (currentAttachment?.kind === 'video') {
+      finalText = `${finalText}\n\n(Foydalanuvchi "${currentAttachment.name}" nomli video biriktirdi, lekin men hozircha video formatini koʻra olmayman — faqat nomini bilaman.)`;
+    } else if (currentAttachment?.kind === 'file') {
+      finalText = `${finalText}\n\n(Foydalanuvchi "${currentAttachment.name}" faylini biriktirdi, lekin bu turdagi faylni oʻqiy olmayman — faqat nomini bilaman.)`;
+    }
+ 
+    addMessage('user', text, {
+      image: currentAttachment?.kind === 'image' ? { dataUrl: currentAttachment.dataUrl, name: currentAttachment.name } : null,
+      fileNote:
+        currentAttachment && currentAttachment.kind !== 'image'
+          ? `📎 ${currentAttachment.name}`
+          : null,
+      apiText: finalText,
+      apiImage: imagePayload || null,
+      apiPdf: pdfPayload || null,
+      prevInteractionId: previousInteractionId,
+    });
+ 
+    // Bot javobi kelayotganda to'ldirib boriladigan bo'sh xabar — "so'z-so'z" effekti shundan.
+    const assistantId = crypto.randomUUID();
+    updateMessages((prev) => [
+      ...prev,
+      { id: assistantId, role: 'assistant', content: '', time: new Date().toISOString(), prevInteractionId: previousInteractionId },
+    ]);
+ 
+    await streamAssistantReply({ assistantId, finalText, imagePayload, pdfPayload, previousInteractionId });
+  }
+ 
+  // "Qayta generatsiya qilish" (regenerate) tugmasi bosilganda: oldingi
+  // foydalanuvchi xabari (matn/rasm) o'sha holicha qayta yuboriladi, lekin
+  // YANGI foydalanuvchi pufakchasi qo'shilmaydi — faqat AI javobi (assistantMsg)
+  // o'rniga yangisi yoziladi.
+  async function regenerateMessage(assistantMsg) {
+    if (isLoading) return;
+    const idx = session.messages.findIndex((m) => m.id === assistantMsg.id);
+    const userMsg = session.messages[idx - 1];
+    if (!userMsg || userMsg.role !== 'user') return;
+ 
+    window.speechSynthesis?.cancel();
+    updateMessages((prev) => prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: '', rating: null } : m)));
+ 
+    await streamAssistantReply({
+      assistantId: assistantMsg.id,
+      finalText: userMsg.apiText ?? userMsg.content,
+      imagePayload: userMsg.apiImage || undefined,
+      pdfPayload: userMsg.apiPdf || undefined,
+      previousInteractionId: assistantMsg.prevInteractionId ?? userMsg.prevInteractionId ?? null,
+    });
+  }
+ 
+  // "Tahrirlash" tugmasi — faqat suhbatdagi ENG OXIRGI foydalanuvchi xabari
+  // uchun ishlaydi (aks holda AI xotirasi va tarix bir-biriga mos kelmay
+  // qoladi). Xabar va undan keyingi javob o'chiriladi, matn kiritish
+  // maydoniga qaytariladi — foydalanuvchi tahrirlab, qayta yuboradi.
+  function startEditMessage(userMsg) {
+    if (isLoading) return;
+    const idx = session.messages.findIndex((m) => m.id === userMsg.id);
+    if (idx === -1) return;
+ 
+    updateMessages((prev) => prev.slice(0, idx));
+    setSession((prev) => ({ ...prev, lastInteractionId: userMsg.prevInteractionId ?? null }));
+    setInput(userMsg.content);
+    setAttachment(null);
+    textareaRef.current?.focus();
+  }
+ 
+  // Assistant javobiga 👍/👎 belgisi qo'yish. Faqat vizual holat sifatida
+  // saqlanadi, shu bilan birga adminга ko'rish uchun serverga ham (xatoga
+  // chidamli, interfeysni to'smaydigan tarzda) yuboriladi.
+  function rateMessage(msg, rating) {
+    const nextRating = msg.rating === rating ? null : rating;
+    updateMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, rating: nextRating } : m)));
+ 
+    if (nextRating) {
+      fetch('/api/rate-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating: nextRating, content: msg.content }),
+      }).catch(() => {});
+    }
+  }
+ 
+  // /api/chat'ga so'rov yuborish + streaming javobni o'qish — bu qism
+  // handleSendText (yangi xabar) va regenerateMessage (qayta generatsiya)
+  // ikkalasi uchun ham umumiy, shuning uchun alohida funksiyaga chiqarilgan.
+  async function streamAssistantReply({ assistantId, finalText, imagePayload, pdfPayload, previousInteractionId }) {
+    setIsLoading(true);
+    setErrorBanner(null);
+ 
+    try {
+      const controller = new AbortController();
+      abortRef.current = controller;
+ 
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: finalText, image: imagePayload, pdf: pdfPayload, previousInteractionId, profile }),
+        signal: controller.signal,
+      });
+ 
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => null);
+        if (data?.unlockAt) {
+          setTrialEndInfo({ planId: data.suggestedPlan === 'pro' ? 'pro' : planInfo?.id || 'pro', unlockAt: data.unlockAt });
+          setPaymentPlanId(data.suggestedPlan || 'pro');
+          setPlansView('trial-ended');
+          setPlansOpen(true);
+        } else if (data?.requiresUpgrade) {
+          setPaymentPlanId(data.suggestedPlan || 'pro');
+          setPlansView('list');
+          setPlansOpen(true);
+        }
+        throw new Error(data?.response || `Server xatosi: ${res.status}`);
+      }
+ 
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let streamedText = '';
+ 
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+ 
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data:')) continue;
+          let evt;
+          try {
+            evt = JSON.parse(line.slice(5).trim());
+          } catch {
+            continue;
+          }
+ 
+          if (evt.type === 'chunk') {
+            streamedText += evt.text;
+            const snapshot = streamedText;
+            updateMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: snapshot } : m)));
+          } else if (evt.type === 'done') {
+            const finalContent = evt.text;
+            updateMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: finalContent, image: evt.image || m.image, file: evt.file || m.file, time: new Date().toISOString() }
+                  : m
+              )
+            );
+            if (evt.interactionId) {
+              setSession((prev) => ({ ...prev, lastInteractionId: evt.interactionId }));
+            }
+            if (evt.plan) {
+              setPlanInfo(evt.plan);
+            }
+            if (evt.facts && Object.keys(evt.facts).length) {
+              setProfile((prev) => {
+                const next = { ...prev, ...evt.facts };
+                saveJSON(PROFILE_KEY, next);
+                return next;
+              });
+            }
+          } else if (evt.type === 'error') {
+            throw new Error(evt.message || 'Server xatosi');
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        // Foydalanuvchi "to'xtatish" tugmasini bosdi — bu xato emas, xabarni
+        // qancha kelgan bo'lsa shu holida qoldiramiz (yoki hali bo'sh bo'lsa, belgi qo'yamiz).
+        updateMessages((prev) =>
+          prev.map((m) => (m.id === assistantId && !m.content ? { ...m, content: '_Toʻxtatildi._' } : m))
+        );
+      } else {
+        console.error(err);
+        setErrorBanner(err.message || 'Serverga ulanishda xatolik yuz berdi.');
+        // Hech narsa kelmagan bo'lsa, bo'sh xabarni olib tashlaymiz.
+        updateMessages((prev) => prev.filter((m) => !(m.id === assistantId && !m.content)));
+      }
+    } finally {
+      setIsLoading(false);
+      abortRef.current = null;
+    }
+  }
+ 
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendText();
+    }
+  }
+ 
+  function handleNewChat() {
+    window.speechSynthesis?.cancel();
+    const fresh = freshSession(profile?.ism);
+    setSession(fresh);
+    setErrorBanner(null);
+    setInput('');
+    setAttachment(null);
+    setHistoryOpen(false);
+  }
+ 
+  function openSession(s) {
+    window.speechSynthesis?.cancel();
+    setSession(s);
+    setHistoryOpen(false);
+  }
+ 
+  function deleteSession(id, e) {
+    e.stopPropagation();
+    setSessions((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      saveJSON(SESSIONS_KEY, next);
+      return next;
+    });
+    if (session.id === id) {
+      setSession(freshSession(profile?.ism));
+    }
+  }
+ 
+  function toggleListening() {
+    if (!speechSupported || !recognitionRef.current) return;
+    if (listening) {
+      recognitionRef.current.stop();
+      setListening(false);
+    } else {
+      try {
+        recognitionRef.current.start();
+        setListening(true);
+      } catch {
+        setListening(false);
       }
     }
-    document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-}
+  }
  
-export default function Header({
-  user,
-  theme,
-  onToggleTheme,
-  language,
-  onChangeLanguage,
-  planId,
-  navMenuOpen,
-  onToggleNavMenu,
-  onCloseNavMenu,
-  avatarMenuOpen,
-  onToggleAvatarMenu,
-  onCloseAvatarMenu,
-  onOpenHistory,
-  onNewChat,
-}) {
-  const navMenuRef = useRef(null);
-  const avatarMenuRef = useRef(null);
+  function toggleSpeak(msg) {
+    if (!ttsSupported) return;
+    if (speakingId === msg.id) {
+      window.speechSynthesis.cancel();
+      setSpeakingId(null);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(stripMarkdown(msg.content));
+    utter.lang = 'uz-UZ';
+    utter.onend = () => setSpeakingId(null);
+    utter.onerror = () => setSpeakingId(null);
+    setSpeakingId(msg.id);
+    window.speechSynthesis.speak(utter);
+  }
  
-  useCloseOnOutsideClick(navMenuOpen, onCloseNavMenu, navMenuRef);
-  useCloseOnOutsideClick(avatarMenuOpen, onCloseAvatarMenu, avatarMenuRef);
+  async function copyMessage(msg) {
+    try {
+      await navigator.clipboard.writeText(msg.content);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = msg.content;
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+      } catch {}
+      document.body.removeChild(ta);
+    }
+    setCopiedId(msg.id);
+    setTimeout(() => setCopiedId(null), 1500);
+  }
+ 
+  async function handleFile(file) {
+    if (!file) return;
+ 
+    if (file.type.startsWith('image/')) {
+      const dataUrl = await fileToDataUrl(file);
+      setAttachment({ kind: 'image', mimeType: file.type, dataUrl, name: file.name });
+    } else if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      if (file.size > 15_000_000) {
+        setAttachment({ kind: 'file', name: file.name });
+        return;
+      }
+      const dataUrl = await fileToDataUrl(file);
+      setAttachment({ kind: 'pdf', dataUrl, name: file.name });
+    } else if (file.type.startsWith('video/')) {
+      if (file.size > 15_000_000) {
+        setAttachment({ kind: 'video', name: file.name });
+        return;
+      }
+      const dataUrl = await fileToDataUrl(file);
+      setAttachment({ kind: 'video', mimeType: file.type, dataUrl, name: file.name });
+    } else if (file.type.startsWith('text/') || /\.(txt|md|json|csv|log)$/i.test(file.name)) {
+      if (file.size > 300000) {
+        setAttachment({ kind: 'file', name: file.name });
+        return;
+      }
+      const text = await fileToText(file);
+      setAttachment({ kind: 'text', name: file.name, text });
+    } else {
+      setAttachment({ kind: 'file', name: file.name });
+    }
+  }
+ 
+  async function handleFilePicked(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    await handleFile(file);
+  }
+ 
+  // Matn maydoniga Ctrl+V bilan rasm yoki video joylashtirilsa — biriktirma
+  // sifatida qo'shamiz (oddiy matn joylashtirish odatdagidek ishlayveradi).
+  function handlePaste(e) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
+          e.preventDefault();
+          handleFile(file);
+          return;
+        }
+      }
+    }
+  }
+ 
+  async function startTrial(planId) {
+    setTrialStarting(true);
+    try {
+      const res = await fetch('/api/start-trial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: planId }),
+      });
+      if (!res.ok) throw new Error((await res.json())?.error || 'Xato');
+      setPlanInfo({
+        id: planId,
+        name: PLANS[planId].name,
+        mode: 'trial',
+        limit: PLANS[planId].trial.limit,
+        used: 0,
+        remaining: PLANS[planId].trial.limit,
+        resetAt: null,
+      });
+      setPlansOpen(false);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setTrialStarting(false);
+    }
+  }
+ 
+  function openUpgrade(planId) {
+    setPaymentPlanId(planId);
+    setPlansView('pay');
+    setPaymentStatus('idle');
+    setPlansOpen(true);
+  }
+ 
+  async function requestUpgrade() {
+    setPaymentStatus('sending');
+    try {
+      const res = await fetch('/api/upgrade-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: paymentPlanId }),
+      });
+      if (!res.ok) throw new Error((await res.json())?.error || 'Xato');
+      setPaymentStatus('sent');
+    } catch {
+      setPaymentStatus('error');
+    }
+  }
+ 
+  function goToPayFromTrialEnd(planId) {
+    setPaymentPlanId(planId || 'pro');
+    setPlansView('pay');
+    setPaymentStatus('idle');
+  }
+ 
+  const sortedSessions = [...sessions].sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
  
   return (
-    <header className="relative z-30 flex items-center justify-between border-b border-[var(--tg-border)] bg-[var(--tg-bg)]/90 px-4 py-3 backdrop-blur sm:px-6">
-      <div className="flex items-center gap-2.5">
-        <button
-          onClick={onOpenHistory}
-          title="Suhbatlar"
-          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--tg-border)] text-[var(--tg-text-2)] transition hover:border-[var(--tg-border-strong)] hover:bg-[var(--tg-hover)]"
-        >
-          <Menu size={17} />
-        </button>
+    <div className="relative flex h-dvh flex-col overflow-hidden bg-[var(--tg-bg)] text-[var(--tg-text-1)]">
+      {showSplash && <SplashScreen />}
  
-        <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center">
-          <div
-            className="tg-logo-ring absolute inset-0 rounded-full"
-            style={{
-              background: 'conic-gradient(from 0deg, #2F9E96, #E4A93B, #2F9E96)',
-              mask: 'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px))',
-              WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px))',
-            }}
-          />
-          <span className="tg-logo-pulse absolute inset-0 rounded-full border border-[#2F9E96]/50" />
-          <img src="/icons/logo-header.png" alt="ToshkentGPT" className="relative h-8 w-8 rounded-full" />
+      {!showSplash && onboardingOpen && (
+        <OnboardingFlow
+          step={obStep}
+          ism={obIsm}
+          familiya={obFamiliya}
+          userImage={user?.image}
+          onIsmChange={setObIsm}
+          onFamiliyaChange={setObFamiliya}
+          onNext={() => setObStep(2)}
+          onBack={() => setObStep(1)}
+          onFinish={() => finishOnboarding()}
+          onSkip={() => finishOnboarding({ skip: true })}
+        />
+      )}
+ 
+      <div className="tg-ambient-bg pointer-events-none fixed inset-0" />
+      <GirihPattern />
+ 
+      <Header
+        user={user}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        language={profile?.til}
+        onChangeLanguage={changeLanguage}
+        planId={planInfo?.id}
+        navMenuOpen={navMenuOpen}
+        onToggleNavMenu={() => setNavMenuOpen((v) => !v)}
+        onCloseNavMenu={() => setNavMenuOpen(false)}
+        avatarMenuOpen={menuOpen}
+        onToggleAvatarMenu={() => setMenuOpen((v) => !v)}
+        onCloseAvatarMenu={() => setMenuOpen(false)}
+        onOpenHistory={() => setHistoryOpen(true)}
+        onNewChat={handleNewChat}
+        onConnectTelegram={connectTelegram}
+      />
+ 
+      {errorBanner && (
+        <div className="relative z-10 border-b border-red-500/20 bg-red-500/10 px-4 py-2 text-center text-xs text-red-300 sm:px-6">
+          {errorBanner}
         </div>
-        <div className="min-w-0">
-          <h1
-            className="truncate text-[15px] font-extrabold tracking-tight sm:text-base"
-            style={{
-              fontFamily: 'var(--font-display)',
-              backgroundImage: 'linear-gradient(90deg, var(--tg-logo-grad-start), var(--tg-logo-grad-end))',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-            }}
-          >
-            ToshkentGPT
-          </h1>
-          <p className="flex items-center gap-1.5 text-[11px] text-[var(--tg-text-3)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#2F9E96] shadow-[0_0_0_3px_rgba(47,158,150,0.2)]" />
-            <span className="hidden sm:inline">koʻcha tilida gaplashadi</span>
-          </p>
-        </div>
-      </div>
+      )}
  
-      <div className="flex items-center gap-1.5">
-        <button
-          onClick={onNewChat}
-          title="Yangi suhbat"
-          className="flex items-center gap-1.5 rounded-lg border border-[var(--tg-border)] px-3 py-1.5 text-xs font-medium text-[var(--tg-text-2)] transition hover:border-[var(--tg-border-strong)] hover:bg-[var(--tg-hover)]"
-        >
-          <Plus size={14} />
-          <span className="hidden sm:inline">Yangi suhbat</span>
-        </button>
+      <ChatMessages
+        messages={session.messages}
+        userImage={user?.image}
+        isLoading={isLoading}
+        copiedId={copiedId}
+        speakingId={speakingId}
+        ttsSupported={ttsSupported}
+        onCopy={copyMessage}
+        onToggleSpeak={toggleSpeak}
+        onRegenerate={regenerateMessage}
+        onEdit={startEditMessage}
+        onRate={rateMessage}
+        onSuggestionClick={(s) => handleSendText(s)}
+        scrollAnchorRef={scrollAnchorRef}
+      />
  
-        {/* Sozlamalar Menyusi */}
-        <div className="relative" ref={navMenuRef}>
-          <button
-            onClick={onToggleNavMenu}
-            title="Sozlamalar"
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--tg-border)] text-[var(--tg-text-2)] transition hover:border-[var(--tg-border-strong)] hover:bg-[var(--tg-hover)]"
-          >
-            <Settings size={16} />
-          </button>
+      <ChatInput
+        planInfo={planInfo}
+        attachment={attachment}
+        onRemoveAttachment={() => setAttachment(null)}
+        fileInputRef={fileInputRef}
+        onFilePicked={handleFilePicked}
+        textareaRef={textareaRef}
+        input={input}
+        onInputChange={setInput}
+        onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
+        speechSupported={speechSupported}
+        listening={listening}
+        onToggleListening={toggleListening}
+        isLoading={isLoading}
+        onStop={stopGeneration}
+        onSend={() => handleSendText()}
+      />
  
-          {navMenuOpen && (
-            <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-1 shadow-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  onToggleTheme?.();
-                  onCloseNavMenu?.();
-                }}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-                {theme === 'dark' ? 'Yorugʻ rejim' : 'Qorongʻu rejim'}
-              </button>
+      <Sidebar
+        open={historyOpen}
+        sessions={sortedSessions}
+        activeSessionId={session.id}
+        onClose={() => setHistoryOpen(false)}
+        onNewChat={handleNewChat}
+        onOpenSession={openSession}
+        onDeleteSession={deleteSession}
+      />
  
-              <div className="px-3 py-2">
-                <div className="mb-1.5 flex items-center gap-2 text-xs text-[var(--tg-text-2)]">
-                  <Languages size={14} />
-                  Bot tili
-                </div>
-                <div className="flex gap-1">
-                  {[
-                    { id: 'auto', label: 'Avto' },
-                    { id: 'uz', label: 'UZ' },
-                    { id: 'ru', label: 'RU' },
-                    { id: 'en', label: 'EN' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => onChangeLanguage?.(opt.id)}
-                      className={`flex-1 rounded-lg border px-1.5 py-1 text-[11px] font-medium transition ${
-                        (language || 'auto') === opt.id
-                          ? 'border-[#2F9E96] bg-[#2F9E96]/15 text-[#2F9E96]'
-                          : 'border-[var(--tg-border)] text-[var(--tg-text-3)] hover:bg-[var(--tg-hover)]'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
- 
-              <div className="my-1 h-px bg-[var(--tg-border)]" />
- 
-              <Link
-                href="/shikoyat"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <MessageSquare size={14} />
-                Shikoyat va takliflar
-              </Link>
- 
-              <Link
-                href="/toshkentgpt-haqida"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <Info size={14} />
-                ToshkentGPT haqida
-              </Link>
- 
-              <Link
-                href="/biz-haqimizda"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <Users size={14} />
-                Biz haqimizda
-              </Link>
- 
-              <div className="my-1 h-px bg-[var(--tg-border)]" />
- 
-              <Link
-                href="/tariflar"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <span className="flex items-center gap-2">
-                  <Sparkles size={14} />
-                  Tariflar
-                </span>
-                <span className="rounded-full border border-[var(--tg-border)] px-1.5 py-0.5 text-[10px]">
-                  {PLANS[planId || 'lite']?.name || 'Lite'}
-                </span>
-              </Link>
-            </div>
-          )}
-        </div>
- 
-        {/* Profil Menyusi */}
-        <div className="relative" ref={avatarMenuRef}>
-          <button
-            onClick={onToggleAvatarMenu}
-            className="ml-1 flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-[var(--tg-border)]"
-          >
-            {user?.image ? (
-              <img src={user.image} alt={user.name || ''} className="h-full w-full object-cover" />
-            ) : (
-              <User size={14} className="text-[var(--tg-text-2)]" />
-            )}
-          </button>
- 
-          {avatarMenuOpen && (
-            <div className="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-1 shadow-xl">
-              <div className="truncate px-3 py-2 text-xs text-[var(--tg-text-3)]">{user?.email}</div>
-              <button
-                type="button"
-                onClick={() => signOut()}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <LogOut size={13} />
-                Chiqish
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </header>
+      <PlansModal
+        open={plansOpen}
+        onClose={() => setPlansOpen(false)}
+        view={plansView}
+        currentPlanId={planInfo?.id}
+        paymentPlanId={paymentPlanId}
+        trialEndInfo={trialEndInfo}
+        paymentStatus={paymentStatus}
+        trialStarting={trialStarting}
+        onStartTrial={startTrial}
+        onOpenUpgrade={openUpgrade}
+        onRequestUpgrade={requestUpgrade}
+        onGoToPayFromTrialEnd={goToPayFromTrialEnd}
+        onBackToList={() => setPlansView('list')}
+      />
+    </div>
   );
 }
+ 
