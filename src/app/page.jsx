@@ -334,6 +334,20 @@ function ToshkentGPT({ user }) {
       return;
     }
  
+    // localhost'da (npm run dev) service worker ataylab o'chirilgan (HMR bilan
+    // to'qnashmasligi uchun) — shu sabab push-bildirishnoma FAQAT production
+    // (Vercel'ga joylashtirilgan) saytda ishlaydi. Aks holda kod "abadiy
+    // kutib" qolar edi (xato ham, natija ham bermay).
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    if (registrations.length === 0) {
+      showToast(
+        "Bu funksiya faqat Vercel'ga joylashtirilgan (production) saytda ishlaydi — localhost'da service worker o'chirilgan.",
+        'error',
+        6000
+      );
+      return;
+    }
+ 
     if (pushEnabled) {
       const sub = await getCurrentPushSubscription();
       if (sub) {
@@ -351,27 +365,32 @@ function ToshkentGPT({ user }) {
  
     try {
       const permission = await Notification.requestPermission();
+      console.log('[push] permission:', permission);
       if (permission !== 'granted') {
         showToast("Bildirishnoma uchun ruxsat berilmadi.", 'error');
         return;
       }
  
       const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      console.log('[push] vapidPublicKey mavjudmi:', Boolean(vapidPublicKey));
       if (!vapidPublicKey) {
         showToast("Push-bildirishnoma hali sozlanmagan.", 'error');
         return;
       }
  
       const subscription = await subscribeToPush(vapidPublicKey);
-      await fetch('/api/push/subscribe', {
+      console.log('[push] subscription:', subscription);
+      const res = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(subscription),
       });
+      console.log('[push] /api/push/subscribe status:', res.status);
       setPushEnabled(true);
       showToast("Bildirishnomalar yoqildi! 🔔", 'success');
-    } catch {
-      showToast("Bildirishnomani yoqishda xatolik yuz berdi.", 'error');
+    } catch (err) {
+      console.error('[push] XATO:', err);
+      showToast(`Bildirishnomani yoqishda xatolik: ${err.message || err}`, 'error');
     }
   }
  
