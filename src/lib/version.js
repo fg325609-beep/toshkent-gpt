@@ -5,9 +5,19 @@
 // oynasida foydalanuvchiga ko'rsatiladi (page.jsx'da localStorage bilan
 // solishtirib, versiya oshgan bo'lsa avtomatik chiqadi).
 // ============================================================
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.1.0';
  
 export const CHANGELOG = [
+  {
+    version: '2.1.0',
+    items: [
+      "🎓 \"Men nimani o'rganishim kerak?\" — kasbingizga oid hujjat yuklab, botni o'z sohangiz bo'yicha maxsus yordamchiga aylantiring",
+      '🎨 Yangi, aniq koʻrinadigan logotip va ilova belgilari',
+      "🚫 Nomaqbul tilni aniqlab, avtomatik ogohlantirish/bloklash tizimi",
+      "🔊 MP3 sifatida yuklab olinadigan, barqaror ovozli oʻqish",
+      "💳 Toʻlovni tasdiqlashda summaga qarab avtomatik oy hisoblash",
+    ],
+  },
   {
     version: '2.0.0',
     items: [

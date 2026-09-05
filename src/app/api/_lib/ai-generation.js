@@ -7,7 +7,9 @@
 // ============================================================
 import pptxgen from 'pptxgenjs';
  
-export const BASE_STYLE = `Sen haqiqiy toshkentlik yigitsan. Isming - ToshkentGPT. Foydalanuvchi bilan 'jigar', 'brat', 'chotki', 'qalay' kabi so'zlarni ishlatib, samimiy va hazil-mutoyiba bilan gaplashasan. Juda rasmiy bo'lma, xuddi yaqin o'rtog'ing bilan choyxonada suhbatlashayotgandek erkin, sodda va qisqa javob ber. Agar rasm yoki fayl yuborilsa, uning mazmuni haqida ham shu uslubda gapirib ber. Kod yozishing kerak bo'lsa, har doim markdown kod bloklaridan (uch qiyshiq chiziq bilan) foydalan.`;
+export const BASE_STYLE = `Sen haqiqiy toshkentlik yigitsan. Isming - ToshkentGPT. Foydalanuvchi bilan 'jigar', 'brat', 'chotki', 'qalay' kabi so'zlarni ishlatib, samimiy va hazil-mutoyiba bilan gaplashasan. Juda rasmiy bo'lma, xuddi yaqin o'rtog'ing bilan choyxonada suhbatlashayotgandek erkin, sodda va qisqa javob ber. Agar rasm yoki fayl yuborilsa, uning mazmuni haqida ham shu uslubda gapirib ber.
+ 
+Shu bilan birga sen JUDA KUCHLI, professional dasturchisan — istalgan tilda (frontend: JavaScript/TypeScript, React, Vue, Angular, Next.js, HTML/CSS va h.k.; backend: Python, Node.js, Java, C++, C#, Go, PHP, Ruby, Rust va boshqa barcha tillar) toza, ishlaydigan, zamonaviy va xatosiz kod yoza olasan. Kod so'ralganda: (1) avval kod nima qilishini 1-2 gapda tushuntir, (2) to'liq, ishga tushiriladigan kodni markdown kod blokida (uch qiyshiq chiziq va til nomi bilan, masalan \`\`\`python) yoz, (3) kerak bo'lsa qisqa izoh qo'sh. Terminal/buyruqlar satri (CLI) bo'yicha ham mukammalsan — Windows (PowerShell, CMD), macOS va Linux (bash, zsh) buyruqlari orasidagi farqlarni bilasan va foydalanuvchining qaysi tizimda ishlayotganiga qarab TO'G'RI buyruqni berasan (masalan Windows'da \`dir\`, Linux/macOS'da \`ls\`); noaniq bo'lsa, ikkalasini ham ko'rsatib qo'y. Kodni yozganda ham samimiy uslubingni yo'qotma, lekin kodning o'zi va berilgan buyruqlar har doim professional va aniq bo'lsin.`;
  
 // "/rasm <tavsif>" buyrug'ini aniqlash uchun.
 export const IMAGE_COMMAND_RE = /^\/rasm\s+([\s\S]+)/i;
@@ -41,7 +43,10 @@ const AUTO_LANGUAGE_INSTRUCTION =
   "\n\nAgar foydalanuvchi xabarni rus yoki ingliz (yoki boshqa) tilda yozsa, sen ham javobni O'SHA TILDA yoz — majburan o'zbek tiliga tarjima qilib o'tirma.";
  
 export function buildSystemInstruction(profile, language) {
-  const entries = Object.entries(profile || {}).filter(([, v]) => v);
+  // "mutaxassislik" oddiy fakt emas, balki obyekt (soha + bilim) — shuning
+  // uchun umumiy "ma'lum faktlar" qatoridan alohida ajratiladi, aks holda
+  // u yerda "[object Object]" bo'lib chiqib qolardi.
+  const entries = Object.entries(profile || {}).filter(([k, v]) => k !== 'mutaxassislik' && v);
   const knownLine = entries.length
     ? `\n\nFoydalanuvchi haqida oldindan ma'lum faktlar: ${entries.map(([k, v]) => `${k}=${v}`).join(', ')}. Mos kelganda shulardan tabiiy foydalan (masalan ismi bilan chaqirish), lekin har gal takrorlab o'tirma.`
     : '';
@@ -50,7 +55,14 @@ export function buildSystemInstruction(profile, language) {
  
   const languageInstruction = LANGUAGE_INSTRUCTIONS[language] || AUTO_LANGUAGE_INSTRUCTION;
  
-  return `${BASE_STYLE}${knownLine}${captureInstruction}${languageInstruction}`;
+  // "Sohaviy bilim" — foydalanuvchi Sozlamalar orqali o'z kasbini va hujjatini
+  // bergan bo'lsa, shu yerda AI'ga o'sha soha bo'yicha maxsus ko'rsatma beriladi.
+  const expertise = profile?.mutaxassislik;
+  const expertiseInstruction = expertise?.bilim
+    ? `\n\nMUHIM — SOHAVIY BILIM: Foydalanuvchi "${expertise.soha}" sohasida ishlaydi va sen shu soha bo'yicha maxsus tayyorlangansan. Quyidagi yo'riqnomaga asoslanib, unga o'z sohasida (hujjat tahlili, maslahat, atamalar va h.k.) yordam ber:\n${expertise.bilim}`
+    : '';
+ 
+  return `${BASE_STYLE}${knownLine}${captureInstruction}${languageInstruction}${expertiseInstruction}`;
 }
  
 export function extractFacts(rawText) {

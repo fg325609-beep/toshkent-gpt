@@ -14,9 +14,11 @@ import {
   UserPlus,
   Shield,
   TrendingUp,
+  Ban,
 } from 'lucide-react';
 import { formatRelative } from '@/lib/format';
 import { showToast } from '@/lib/toast';
+import { PLANS } from '@/app/plans';
  
 const PIN_SESSION_KEY = 'tg-admin-unlocked';
  
@@ -208,6 +210,26 @@ function Dashboard() {
     }
   }
  
+  const [blockingEmail, setBlockingEmail] = useState(null);
+ 
+  async function toggleBlock(email, currentlyBlocked) {
+    setBlockingEmail(email);
+    try {
+      const res = await fetch('/api/admin/block', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, action: currentlyBlocked ? 'unblock' : 'block' }),
+      });
+      if (!res.ok) throw new Error((await res.json())?.error || 'Xatolik');
+      setUsers((prev) => prev.map((u) => (u.email === email ? { ...u, blocked: !currentlyBlocked } : u)));
+      showToast(currentlyBlocked ? `${email} blokdan chiqarildi.` : `${email} bloklandi.`, 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setBlockingEmail(null);
+    }
+  }
+ 
   async function loadRequests() {
     setRequestsLoading(true);
     try {
@@ -242,16 +264,19 @@ function Dashboard() {
     return () => clearInterval(interval);
   }, []);
  
-  async function approve(id) {
+  const [amounts, setAmounts] = useState({}); // { [requestId]: "20000" }
+ 
+  async function approve(id, months) {
     setApprovingId(id);
     try {
       const res = await fetch('/api/admin/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, months: 1 }),
+        body: JSON.stringify({ id, months }),
       });
       if (!res.ok) throw new Error((await res.json())?.error || 'Xatolik');
       setRequests((prev) => prev.filter((r) => r.id !== id));
+      showToast(`Tasdiqlandi — ${months} oylik tarif berildi.`, 'success');
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -348,6 +373,11 @@ function Dashboard() {
                             {u.name || u.profile?.ism || u.profile?.familiya
                               ? `${u.profile?.ism || u.name || ''} ${u.profile?.familiya || ''}`.trim()
                               : u.email}
+                            {u.blocked && (
+                              <span className="ml-2 rounded-full border border-red-500/30 px-1.5 py-0.5 text-[10px] text-red-400">
+                                Bloklangan
+                              </span>
+                            )}
                           </td>
                           <td className="px-3 py-2.5">
                             <span
@@ -397,6 +427,28 @@ function Dashboard() {
                                   </div>
                                 </div>
                               )}
+ 
+                              <div className="mt-3 border-t border-[var(--tg-border)] pt-3">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleBlock(u.email, u.blocked);
+                                  }}
+                                  disabled={blockingEmail === u.email}
+                                  className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+                                    u.blocked
+                                      ? 'border-[#2F9E96]/30 text-[#2F9E96] hover:bg-[#2F9E96]/10'
+                                      : 'border-red-500/30 text-red-400 hover:bg-red-500/10'
+                                  }`}
+                                >
+                                  {blockingEmail === u.email ? (
+                                    <Loader2 size={13} className="animate-spin" />
+                                  ) : (
+                                    <Ban size={13} />
+                                  )}
+                                  {u.blocked ? 'Blokdan chiqarish' : 'Bloklash'}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         )}
@@ -424,30 +476,53 @@ function Dashboard() {
           )}
  
           <ul className="space-y-2">
-            {requests.map((r) => (
-              <li
-                key={r.id}
-                className="flex items-center justify-between rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-3"
-              >
-                <div>
-                  <p className="text-sm font-semibold">{r.planName}</p>
-                  <p className="text-xs text-[var(--tg-text-3)]">
-                    {r.name ? `${r.name} — ` : ''}
-                    {r.email}
-                  </p>
-                  <p className="text-[10px] text-[var(--tg-text-4)]">{new Date(r.createdAt).toLocaleString('uz-UZ')}</p>
-                </div>
-                <button
-                  onClick={() => approve(r.id)}
-                  disabled={approvingId === r.id}
-                  className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-[#0D0F14] disabled:opacity-50"
-                  style={{ background: 'linear-gradient(135deg, #E4A93B, #2F9E96)' }}
+            {requests.map((r) => {
+              const planPrice = PLANS[r.plan]?.priceAmount || 0;
+              const enteredAmount = amounts[r.id] ?? String(planPrice || '');
+              const computedMonths = planPrice > 0 ? Math.max(1, Math.round(Number(enteredAmount) / planPrice)) : 1;
+ 
+              return (
+                <li
+                  key={r.id}
+                  className="rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-3"
                 >
-                  {approvingId === r.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                  Tasdiqlash
-                </button>
-              </li>
-            ))}
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold">{r.planName}</p>
+                      <p className="text-xs text-[var(--tg-text-3)]">
+                        {r.name ? `${r.name} — ` : ''}
+                        {r.email}
+                      </p>
+                      <p className="text-[10px] text-[var(--tg-text-4)]">{new Date(r.createdAt).toLocaleString('uz-UZ')}</p>
+                    </div>
+                  </div>
+ 
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <label className="mb-1 block text-[10px] text-[var(--tg-text-4)]">
+                        Kelgan summa (soʻm) — {planPrice.toLocaleString('uz-UZ')} soʻm/oy
+                      </label>
+                      <input
+                        type="number"
+                        value={enteredAmount}
+                        onChange={(e) => setAmounts((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                        className="w-full rounded-lg border border-[var(--tg-border)] bg-[var(--tg-hover)] px-2.5 py-1.5 text-xs text-[var(--tg-text-1)] outline-none focus:border-[var(--tg-border-strong)]"
+                      />
+                    </div>
+                    <button
+                      onClick={() => approve(r.id, computedMonths)}
+                      disabled={approvingId === r.id}
+                      title={`${computedMonths} oylik tarif beriladi`}
+                      className="flex flex-shrink-0 items-center gap-1.5 self-end rounded-lg px-3 py-2 text-xs font-semibold text-[#0D0F14] disabled:opacity-50"
+                      style={{ background: 'linear-gradient(135deg, #E4A93B, #2F9E96)' }}
+                    >
+                      {approvingId === r.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                      {computedMonths} oy
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </section>
  

@@ -1,6 +1,6 @@
 'use client';
  
-import { User, Check, Copy, Volume2, VolumeX, RefreshCw, Pencil, ThumbsUp, ThumbsDown, FileDown } from 'lucide-react';
+import { User, Check, Copy, Volume2, VolumeX, RefreshCw, Pencil, ThumbsUp, ThumbsDown, FileDown, Loader2, Download } from 'lucide-react';
 import MarkdownMessage from '@/app/markdown-message';
 import { formatTime } from '@/lib/format';
  
@@ -15,9 +15,11 @@ export default function MessageBubble({
   isLoading,
   copiedId,
   speakingId,
-  ttsSupported,
+  ttsLoading,
+  hasAudio,
   onCopy,
   onToggleSpeak,
+  onDownloadAudio,
   canRegenerate,
   canEdit,
   onRegenerate,
@@ -106,15 +108,31 @@ export default function MessageBubble({
                 {copiedId === msg.id ? <Check size={12} /> : <Copy size={12} />}
               </button>
             )}
-            {!isUser && ttsSupported && msg.content && (
+            {!isUser && msg.content && (
               <button
                 onClick={() => onToggleSpeak(msg)}
+                disabled={ttsLoading}
                 title="Ovozda eshitish"
-                className={`transition-colors hover:text-[var(--tg-text-1)] ${
+                className={`transition-colors hover:text-[var(--tg-text-1)] disabled:opacity-50 ${
                   speakingId === msg.id ? 'text-[#2F9E96]' : 'text-[var(--tg-text-3)]'
                 }`}
               >
-                {speakingId === msg.id ? <VolumeX size={12} /> : <Volume2 size={12} />}
+                {ttsLoading ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : speakingId === msg.id ? (
+                  <VolumeX size={12} />
+                ) : (
+                  <Volume2 size={12} />
+                )}
+              </button>
+            )}
+            {!isUser && hasAudio && (
+              <button
+                onClick={() => onDownloadAudio(msg.id)}
+                title="MP3 sifatida yuklab olish"
+                className="text-[var(--tg-text-3)] transition-colors hover:text-[var(--tg-text-1)]"
+              >
+                <Download size={12} />
               </button>
             )}
             {isUser && canEdit && (

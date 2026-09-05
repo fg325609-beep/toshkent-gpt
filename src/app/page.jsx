@@ -79,9 +79,10 @@ function ToshkentGPT({ user }) {
   const [errorBanner, setErrorBanner] = useState(null);
   const [listening, setListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
-  const [ttsSupported, setTtsSupported] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
   const [speakingId, setSpeakingId] = useState(null);
+  const [ttsLoadingId, setTtsLoadingId] = useState(null);
+  const [audioCache, setAudioCache] = useState({}); // { [msgId]: base64Mp3 } — qayta so'ramaslik uchun
   const [attachment, setAttachment] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -118,6 +119,7 @@ function ToshkentGPT({ user }) {
   const recognitionRef = useRef(null);
   const fileInputRef = useRef(null);
   const abortRef = useRef(null);
+  const audioRef = useRef(null);
  
   // --- Ilova ochilganda: profil + suhbatlarni tiklash ---
   // Agar bu shunchaki sahifa yangilanishi bo'lsa (F5), oxirgi suhbat davom etadi.
@@ -270,7 +272,6 @@ function ToshkentGPT({ user }) {
       rec.onend = () => setListening(false);
       recognitionRef.current = rec;
     }
-    if (!window.speechSynthesis) setTtsSupported(false);
   }, []);
  
   function updateMessages(updater) {
@@ -419,7 +420,8 @@ function ToshkentGPT({ user }) {
     const userMsg = session.messages[idx - 1];
     if (!userMsg || userMsg.role !== 'user') return;
  
-    window.speechSynthesis?.cancel();
+    audioRef.current?.pause();
+    setSpeakingId(null);
     updateMessages((prev) => prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: '', rating: null } : m)));
  
     await streamAssistantReply({
@@ -576,7 +578,8 @@ function ToshkentGPT({ user }) {
   }
  
   function handleNewChat() {
-    window.speechSynthesis?.cancel();
+    audioRef.current?.pause();
+    setSpeakingId(null);
     const fresh = freshSession(profile?.ism);
     setSession(fresh);
     setErrorBanner(null);
@@ -586,7 +589,8 @@ function ToshkentGPT({ user }) {
   }
  
   function openSession(s) {
-    window.speechSynthesis?.cancel();
+    audioRef.current?.pause();
+    setSpeakingId(null);
     setSession(s);
     setHistoryOpen(false);
   }
@@ -618,20 +622,59 @@ function ToshkentGPT({ user }) {
     }
   }
  
-  function toggleSpeak(msg) {
-    if (!ttsSupported) return;
+  function playAudio(msgId, base64Mp3) {
+    audioRef.current?.pause();
+    const audio = new Audio(`data:audio/mpeg;base64,${base64Mp3}`);
+    audioRef.current = audio;
+    audio.onended = () => setSpeakingId(null);
+    audio.onerror = () => setSpeakingId(null);
+    setSpeakingId(msgId);
+    audio.play().catch(() => setSpeakingId(null));
+  }
+ 
+  async function toggleSpeak(msg) {
     if (speakingId === msg.id) {
-      window.speechSynthesis.cancel();
+      audioRef.current?.pause();
       setSpeakingId(null);
       return;
     }
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(stripMarkdown(msg.content));
-    utter.lang = 'uz-UZ';
-    utter.onend = () => setSpeakingId(null);
-    utter.onerror = () => setSpeakingId(null);
-    setSpeakingId(msg.id);
-    window.speechSynthesis.speak(utter);
+    audioRef.current?.pause();
+    setSpeakingId(null);
+ 
+    // Avval yaratilgan bo'lsa, qayta so'ramaymiz — keshdan darhol ijro etamiz.
+    const cached = audioCache[msg.id];
+    if (cached) {
+      playAudio(msg.id, cached);
+      return;
+    }
+ 
+    setTtsLoadingId(msg.id);
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: stripMarkdown(msg.content).slice(0, 2000) }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.audio) throw new Error(data?.error || "Ovoz yaratib bo'lmadi.");
+      setAudioCache((prev) => ({ ...prev, [msg.id]: data.audio }));
+      playAudio(msg.id, data.audio);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setTtsLoadingId(null);
+    }
+  }
+ 
+  function downloadAudio(msgId) {
+    const base64 = audioCache[msgId];
+    if (!base64) return;
+    const a = document.createElement('a');
+    a.href = `data:audio/mpeg;base64,${base64}`;
+    a.download = 'toshkentgpt-ovoz.mp3';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
  
   async function copyMessage(msg) {
@@ -814,9 +857,11 @@ function ToshkentGPT({ user }) {
         isLoading={isLoading}
         copiedId={copiedId}
         speakingId={speakingId}
-        ttsSupported={ttsSupported}
+        ttsLoadingId={ttsLoadingId}
+        audioCache={audioCache}
         onCopy={copyMessage}
         onToggleSpeak={toggleSpeak}
+        onDownloadAudio={downloadAudio}
         onRegenerate={regenerateMessage}
         onEdit={startEditMessage}
         onRate={rateMessage}

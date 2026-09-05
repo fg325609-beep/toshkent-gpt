@@ -19,9 +19,11 @@ export default function ChatMessages({
   isLoading,
   copiedId,
   speakingId,
-  ttsSupported,
+  ttsLoadingId,
+  audioCache,
   onCopy,
   onToggleSpeak,
+  onDownloadAudio,
   onRegenerate,
   onEdit,
   onRate,
@@ -49,9 +51,11 @@ export default function ChatMessages({
             isLoading={isLoading}
             copiedId={copiedId}
             speakingId={speakingId}
-            ttsSupported={ttsSupported}
+            ttsLoading={ttsLoadingId === msg.id}
+            hasAudio={Boolean(audioCache?.[msg.id])}
             onCopy={onCopy}
             onToggleSpeak={onToggleSpeak}
+            onDownloadAudio={onDownloadAudio}
             canRegenerate={!isLoading && msg.id === lastAssistantMsg?.id}
             canEdit={!isLoading && msg.id === lastUserMsg?.id}
             onRegenerate={onRegenerate}

@@ -1,10 +1,11 @@
 import { auth } from '@/auth';
 import { isAdminEmail, listTrackedUsers } from '../../_lib/admin';
 import { getUserProfile } from '../../_lib/user-profile';
+import { isUserBlocked } from '../../_lib/moderation';
  
 // Admin panelidagi "kimlar bor" jadvali uchun: har bir foydalanuvchining
 // ism/familiya/qiziqishlari (chatda "ESLA" orqali yig'ilgan barcha faktlar),
-// birinchi/oxirgi faollik vaqti va onlayn holatini qaytaradi.
+// birinchi/oxirgi faollik vaqti, onlayn va BLOKLANGAN holatini qaytaradi.
 export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
@@ -20,8 +21,11 @@ export async function GET() {
   // kichik (indie loyiha) bo'lgani uchun N ta alohida so'rov muammo emas.
   const users = await Promise.all(
     tracked.map(async (u) => {
-      const profile = await getUserProfile(u.email).catch(() => ({}));
-      return { ...u, profile };
+      const [profile, blocked] = await Promise.all([
+        getUserProfile(u.email).catch(() => ({})),
+        isUserBlocked(u.email).catch(() => false),
+      ]);
+      return { ...u, profile, blocked };
     })
   );
  

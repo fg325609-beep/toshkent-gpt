@@ -13,6 +13,7 @@ import {
   generatePresentation,
 } from '../../_lib/ai-generation';
 import { sendTelegramMessage, sendTelegramPhoto, sendTelegramDocument, sendTelegramChatAction } from '../../_lib/telegram';
+import { isUserBlocked, containsProfanity, recordViolation } from '../../_lib/moderation';
  
 // ============================================================
 // Telegram bot — /api/chat (veb-chat) bilan BIR XIL AI mantig'ini
@@ -112,6 +113,11 @@ export async function POST(req) {
     return Response.json({ ok: true });
   }
  
+  if (await isUserBlocked(email)) {
+    await sendTelegramMessage(chatId, "Qoidalarni buzganingiz uchun hisobingiz cheklangan. Savol bo'lsa, admin bilan bog'laning.");
+    return Response.json({ ok: true });
+  }
+ 
   if (message.photo || message.document) {
     await sendTelegramMessage(
       chatId,
@@ -121,6 +127,16 @@ export async function POST(req) {
   }
  
   if (!text) {
+    return Response.json({ ok: true });
+  }
+ 
+  if (containsProfanity(text)) {
+    const { count, blocked } = await recordViolation(email);
+    if (blocked) {
+      await sendTelegramMessage(chatId, "Nomaqbul til ishlatganingiz tufayli hisobingiz bloklandi.");
+    } else {
+      await sendTelegramMessage(chatId, `Iltimos, odobli til bilan gaplashaylik, jigar 🙏 (Ogohlantirish ${count}/3)`);
+    }
     return Response.json({ ok: true });
   }
  
