@@ -1,6 +1,6 @@
 'use client';
  
-import { Paperclip, Mic, Square, Send, X, Film, FileText } from 'lucide-react';
+import { Paperclip, Mic, Square, Send, X, Film, FileText, Brain, Loader2 } from 'lucide-react';
 import { formatTime } from '@/lib/format';
  
 // ============================================================
@@ -20,10 +20,13 @@ export default function ChatInput({
   onPaste,
   speechSupported,
   listening,
+  transcribing,
   onToggleListening,
   isLoading,
   onStop,
   onSend,
+  deepThink,
+  onToggleDeepThink,
 }) {
   const canSend = Boolean(input.trim() || attachment);
  
@@ -112,6 +115,16 @@ export default function ChatInput({
             <Paperclip size={16} />
           </button>
  
+          <button
+            onClick={onToggleDeepThink}
+            title={deepThink ? "Chuqur o'ylash yoqilgan — javob sekinroq, lekin chuqurroq bo'ladi" : "Chuqur o'ylashni yoqish"}
+            className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition ${
+              deepThink ? 'bg-[#2F9E96]/15 text-[#2F9E96]' : 'text-[var(--tg-text-2)] hover:bg-[var(--tg-hover)]'
+            }`}
+          >
+            <Brain size={16} />
+          </button>
+ 
           <textarea
             ref={textareaRef}
             value={input}
@@ -126,12 +139,19 @@ export default function ChatInput({
           {speechSupported && (
             <button
               onClick={onToggleListening}
-              title={listening ? 'Yozishni toʻxtatish' : 'Ovoz bilan yozish'}
-              className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition ${
+              disabled={transcribing}
+              title={transcribing ? "Matnga o'girilmoqda..." : listening ? 'Yozishni toʻxtatish' : 'Ovoz bilan yozish'}
+              className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition disabled:opacity-60 ${
                 listening ? 'bg-red-500/15 text-red-400' : 'text-[var(--tg-text-2)] hover:bg-[var(--tg-hover)]'
               }`}
             >
-              {listening ? <Square size={14} /> : <Mic size={16} />}
+              {transcribing ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : listening ? (
+                <Square size={14} />
+              ) : (
+                <Mic size={16} />
+              )}
             </button>
           )}
  

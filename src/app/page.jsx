@@ -11,6 +11,7 @@ import { stripMarkdown } from '@/lib/format';
 import { fileToDataUrl, fileToText } from '@/lib/files';
 import { showToast } from '@/lib/toast';
 import { APP_VERSION, CHANGELOG } from '@/lib/version';
+import { isPushSupported, subscribeToPush, getCurrentPushSubscription } from '@/lib/push';
  
 import SignInScreen from '@/components/SignInScreen';
 import SplashScreen from '@/components/SplashScreen';
@@ -78,11 +79,13 @@ function ToshkentGPT({ user }) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorBanner, setErrorBanner] = useState(null);
   const [listening, setListening] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
   const [speakingId, setSpeakingId] = useState(null);
   const [ttsLoadingId, setTtsLoadingId] = useState(null);
   const [audioCache, setAudioCache] = useState({}); // { [msgId]: base64Mp3 } — qayta so'ramaslik uchun
+  const [deepThink, setDeepThink] = useState(false);
   const [attachment, setAttachment] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -116,7 +119,8 @@ function ToshkentGPT({ user }) {
  
   const textareaRef = useRef(null);
   const scrollAnchorRef = useRef(null);
-  const recognitionRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
   const fileInputRef = useRef(null);
   const abortRef = useRef(null);
   const audioRef = useRef(null);
@@ -256,22 +260,8 @@ function ToshkentGPT({ user }) {
   }, [input]);
  
   useEffect(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      setSpeechSupported(false);
-    } else {
-      const rec = new SR();
-      rec.continuous = false;
-      rec.interimResults = false;
-      rec.lang = 'uz-UZ';
-      rec.onresult = (e) => {
-        const transcript = e.results?.[0]?.[0]?.transcript || '';
-        setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
-      };
-      rec.onerror = () => setListening(false);
-      rec.onend = () => setListening(false);
-      recognitionRef.current = rec;
-    }
+    const supported = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+    setSpeechSupported(supported);
   }, []);
  
   function updateMessages(updater) {
@@ -329,6 +319,86 @@ function ToshkentGPT({ user }) {
       }).catch(() => {});
       return next;
     });
+  }
+ 
+  const [pushEnabled, setPushEnabled] = useState(false);
+ 
+  useEffect(() => {
+    if (!isPushSupported()) return;
+    getCurrentPushSubscription().then((sub) => setPushEnabled(Boolean(sub)));
+  }, []);
+ 
+  async function togglePushNotifications() {
+    if (!isPushSupported()) {
+      showToast("Brauzeringiz push-bildirishnomani qoʻllab-quvvatlamaydi.", 'error');
+      return;
+    }
+ 
+    if (pushEnabled) {
+      const sub = await getCurrentPushSubscription();
+      if (sub) {
+        await fetch('/api/push/unsubscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: sub.endpoint }),
+        }).catch(() => {});
+        await sub.unsubscribe().catch(() => {});
+      }
+      setPushEnabled(false);
+      showToast("Bildirishnomalar oʻchirildi.", 'info');
+      return;
+    }
+ 
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        showToast("Bildirishnoma uchun ruxsat berilmadi.", 'error');
+        return;
+      }
+ 
+      const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!vapidPublicKey) {
+        showToast("Push-bildirishnoma hali sozlanmagan.", 'error');
+        return;
+      }
+ 
+      const subscription = await subscribeToPush(vapidPublicKey);
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(subscription),
+      });
+      setPushEnabled(true);
+      showToast("Bildirishnomalar yoqildi! 🔔", 'success');
+    } catch {
+      showToast("Bildirishnomani yoqishda xatolik yuz berdi.", 'error');
+    }
+  }
+ 
+  function downloadChat() {
+    if (!session.messages.length) {
+      showToast("Suhbat hali bo'sh.", 'error');
+      return;
+    }
+ 
+    const lines = [`ToshkentGPT — ${session.title || 'Suhbat'}`, '='.repeat(40), ''];
+    for (const msg of session.messages) {
+      const who = msg.role === 'user' ? (profile?.ism || 'Siz') : 'ToshkentGPT';
+      const time = msg.time ? new Date(msg.time).toLocaleString('uz-UZ') : '';
+      lines.push(`[${time}] ${who}:`);
+      lines.push(msg.content || (msg.image ? '(rasm)' : ''));
+      lines.push('');
+    }
+ 
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `toshkentgpt-${(session.title || 'suhbat').slice(0, 40).replace(/[^\p{L}\p{N}\s-]/gu, '')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
  
   async function connectTelegram() {
@@ -407,7 +477,7 @@ function ToshkentGPT({ user }) {
       { id: assistantId, role: 'assistant', content: '', time: new Date().toISOString(), prevInteractionId: previousInteractionId },
     ]);
  
-    await streamAssistantReply({ assistantId, finalText, imagePayload, pdfPayload, previousInteractionId });
+    await streamAssistantReply({ assistantId, finalText, imagePayload, pdfPayload, previousInteractionId, deepThink });
   }
  
   // "Qayta generatsiya qilish" (regenerate) tugmasi bosilganda: oldingi
@@ -430,6 +500,7 @@ function ToshkentGPT({ user }) {
       imagePayload: userMsg.apiImage || undefined,
       pdfPayload: userMsg.apiPdf || undefined,
       previousInteractionId: assistantMsg.prevInteractionId ?? userMsg.prevInteractionId ?? null,
+      deepThink,
     });
   }
  
@@ -468,7 +539,7 @@ function ToshkentGPT({ user }) {
   // /api/chat'ga so'rov yuborish + streaming javobni o'qish — bu qism
   // handleSendText (yangi xabar) va regenerateMessage (qayta generatsiya)
   // ikkalasi uchun ham umumiy, shuning uchun alohida funksiyaga chiqarilgan.
-  async function streamAssistantReply({ assistantId, finalText, imagePayload, pdfPayload, previousInteractionId }) {
+  async function streamAssistantReply({ assistantId, finalText, imagePayload, pdfPayload, previousInteractionId, deepThink }) {
     setIsLoading(true);
     setErrorBanner(null);
  
@@ -479,7 +550,7 @@ function ToshkentGPT({ user }) {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: finalText, image: imagePayload, pdf: pdfPayload, previousInteractionId, profile }),
+        body: JSON.stringify({ text: finalText, image: imagePayload, pdf: pdfPayload, previousInteractionId, profile, deepThink }),
         signal: controller.signal,
       });
  
@@ -607,18 +678,60 @@ function ToshkentGPT({ user }) {
     }
   }
  
-  function toggleListening() {
-    if (!speechSupported || !recognitionRef.current) return;
+  async function toggleListening() {
+    if (!speechSupported) return;
+ 
     if (listening) {
-      recognitionRef.current.stop();
+      // Yozib olishni to'xtatamiz — qolgani (yuborish, matnga o'girish)
+      // recorder'ning "onstop" hodisasida davom etadi.
+      mediaRecorderRef.current?.stop();
       setListening(false);
-    } else {
-      try {
-        recognitionRef.current.start();
-        setListening(true);
-      } catch {
-        setListening(false);
-      }
+      return;
+    }
+ 
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      audioChunksRef.current = [];
+ 
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+ 
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+ 
+        if (blob.size < 500) return; // deyarli bo'sh yozuv — hech narsa qilmaymiz
+ 
+        setTranscribing(true);
+        try {
+          const dataUrl = await fileToDataUrl(blob);
+          const base64 = dataUrl.split(',')[1];
+          const res = await fetch('/api/stt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ audio: base64, mimeType: blob.type }),
+          });
+          const data = await res.json().catch(() => null);
+          if (!res.ok) throw new Error(data?.error || "Ovozni matnga o'girib bo'lmadi.");
+          if (data?.text) {
+            setInput((prev) => (prev ? `${prev} ${data.text}` : data.text));
+          }
+        } catch (err) {
+          showToast(err.message, 'error');
+        } finally {
+          setTranscribing(false);
+        }
+      };
+ 
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setListening(true);
+    } catch {
+      showToast("Mikrofonga ruxsat berilmadi yoki topilmadi.", 'error');
+      setListening(false);
     }
   }
  
@@ -843,6 +956,9 @@ function ToshkentGPT({ user }) {
         onOpenHistory={() => setHistoryOpen(true)}
         onNewChat={handleNewChat}
         onConnectTelegram={connectTelegram}
+        pushEnabled={pushEnabled}
+        onTogglePush={togglePushNotifications}
+        onDownloadChat={downloadChat}
       />
  
       {errorBanner && (
@@ -882,10 +998,13 @@ function ToshkentGPT({ user }) {
         onPaste={handlePaste}
         speechSupported={speechSupported}
         listening={listening}
+        transcribing={transcribing}
         onToggleListening={toggleListening}
         isLoading={isLoading}
         onStop={stopGeneration}
         onSend={() => handleSendText()}
+        deepThink={deepThink}
+        onToggleDeepThink={() => setDeepThink((v) => !v)}
       />
  
       <Sidebar

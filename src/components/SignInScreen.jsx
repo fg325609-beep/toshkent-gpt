@@ -1,6 +1,7 @@
 'use client';
  
 import { signIn } from 'next-auth/react';
+import Link from 'next/link';
 import { GoogleGlyph } from './icons/BrandIcons';
 import GirihPattern from './GirihPattern';
  
@@ -52,6 +53,16 @@ export default function SignInScreen() {
           Google bilan kirish
         </button>
         <p className="mt-4 text-[11px] text-[var(--tg-text-4)]">Bepul boshlash mumkin — karta shart emas</p>
+ 
+        <div className="mt-6 flex items-center gap-3 text-[10px] text-[var(--tg-text-4)]">
+          <Link href="/maxfiylik-siyosati" className="underline hover:text-[var(--tg-text-3)]">
+            Maxfiylik siyosati
+          </Link>
+          <span>·</span>
+          <Link href="/foydalanish-shartlari" className="underline hover:text-[var(--tg-text-3)]">
+            Foydalanish shartlari
+          </Link>
+        </div>
       </div>
     </div>
   );

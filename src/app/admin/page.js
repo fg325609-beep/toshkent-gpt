@@ -15,6 +15,8 @@ import {
   Shield,
   TrendingUp,
   Ban,
+  Bell,
+  Send,
 } from 'lucide-react';
 import { formatRelative } from '@/lib/format';
 import { showToast } from '@/lib/toast';
@@ -212,6 +214,33 @@ function Dashboard() {
  
   const [blockingEmail, setBlockingEmail] = useState(null);
  
+  const [broadcastTitle, setBroadcastTitle] = useState('ToshkentGPT');
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
+ 
+  async function sendBroadcast() {
+    if (!broadcastMessage.trim()) {
+      showToast('Xabar matnini kiriting.', 'error');
+      return;
+    }
+    setSendingBroadcast(true);
+    try {
+      const res = await fetch('/api/admin/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: broadcastTitle, message: broadcastMessage }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Xatolik');
+      showToast(`Yuborildi: ${data.sent} ta qurilmaga (${data.totalUsers} foydalanuvchi obuna).`, 'success');
+      setBroadcastMessage('');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setSendingBroadcast(false);
+    }
+  }
+ 
   async function toggleBlock(email, currentlyBlocked) {
     setBlockingEmail(email);
     try {
@@ -332,6 +361,34 @@ function Dashboard() {
         </div>
  
         <StatsChart data={dailyStats} />
+ 
+        <div className="rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-4">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-bold">
+            <Bell size={15} /> Hammaga bildirishnoma yuborish
+          </h3>
+          <input
+            value={broadcastTitle}
+            onChange={(e) => setBroadcastTitle(e.target.value)}
+            placeholder="Sarlavha"
+            className="mb-2 w-full rounded-lg border border-[var(--tg-border)] bg-[var(--tg-hover)] px-3 py-2 text-xs text-[var(--tg-text-1)] outline-none focus:border-[var(--tg-border-strong)]"
+          />
+          <textarea
+            value={broadcastMessage}
+            onChange={(e) => setBroadcastMessage(e.target.value)}
+            placeholder="Xabar matni..."
+            rows={2}
+            className="mb-2 w-full resize-none rounded-lg border border-[var(--tg-border)] bg-[var(--tg-hover)] px-3 py-2 text-xs text-[var(--tg-text-1)] outline-none focus:border-[var(--tg-border-strong)]"
+          />
+          <button
+            onClick={sendBroadcast}
+            disabled={sendingBroadcast}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-[#0D0F14] disabled:opacity-50"
+            style={{ background: 'linear-gradient(135deg, #E4A93B, #2F9E96)' }}
+          >
+            {sendingBroadcast ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+            Yuborish
+          </button>
+        </div>
  
         {/* --- Foydalanuvchilar jadvali --- */}
         <section>

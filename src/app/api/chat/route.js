@@ -29,6 +29,15 @@ function modelForPlan(plan) {
   return (plan?.modelEnv && process.env[plan.modelEnv]) || DEFAULT_MODEL;
 }
  
+// Lite tarifda TEZ javob berish ustuvor (kam "o'ylash"), yuqori tariflarda
+// sifat ustuvor. Foydalanuvchi "Chuqur o'ylash"ni yoqsa, tarifidan qat'i
+// nazar har doim 'high' ishlatiladi.
+function thinkingLevelForPlan(planId) {
+  if (planId === 'lite') return 'low';
+  if (planId === 'pro') return 'medium';
+  return 'high'; // max, promax
+}
+ 
 function formatTime(iso) {
   return new Date(iso).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' });
 }
@@ -48,7 +57,7 @@ async function notifyAdminOfAutoBlock(email) {
 }
  
 export async function POST(req) {
-  const { text, image, pdf, previousInteractionId, profile: clientProfile } = await req.json();
+  const { text, image, pdf, previousInteractionId, profile: clientProfile, deepThink } = await req.json();
  
   if (!text && !image && !pdf) {
     return Response.json({ response: 'Matn, rasm yoki fayl kiritilmadi!' }, { status: 400 });
@@ -309,6 +318,7 @@ export async function POST(req) {
  
   const systemInstruction = buildSystemInstruction(profile, profile?.til);
   const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
+  const thinkingLevel = deepThink ? 'high' : thinkingLevelForPlan(effectivePlan.plan?.id);
  
   async function openStream(prevId) {
     return ai.interactions.create({
@@ -319,6 +329,7 @@ export async function POST(req) {
       stream: true,
       generation_config: {
         max_output_tokens: 4096,
+        thinking_level: thinkingLevel,
       },
     });
   }
@@ -398,3 +409,4 @@ export async function POST(req) {
     },
   });
 }
+ 

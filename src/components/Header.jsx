@@ -2,7 +2,7 @@
  
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User, Info, Users, Languages, Send, BrainCircuit, Gift, GraduationCap } from 'lucide-react';
+import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User, Info, Users, Languages, Send, BrainCircuit, Gift, GraduationCap, ShieldCheck, FileCheck, Bell, Download, HelpCircle } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { PLANS } from '@/app/plans';
  
@@ -48,6 +48,9 @@ export default function Header({
   onOpenHistory,
   onNewChat,
   onConnectTelegram,
+  pushEnabled,
+  onTogglePush,
+  onDownloadChat,
 }) {
   const navMenuRef = useRef(null);
   const avatarMenuRef = useRef(null);
@@ -171,7 +174,37 @@ export default function Header({
                 Telegram bilan bogʻlash
               </button>
  
+              <button
+                type="button"
+                onClick={() => onTogglePush?.()}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
+              >
+                <span className="flex items-center gap-2">
+                  <Bell size={14} />
+                  Bildirishnomalar
+                </span>
+                <span
+                  className={`h-4 w-7 rounded-full transition ${pushEnabled ? 'bg-[#2F9E96]' : 'bg-[var(--tg-border-strong)]'}`}
+                >
+                  <span
+                    className={`block h-3 w-3 translate-y-0.5 rounded-full bg-white transition ${pushEnabled ? 'translate-x-3.5' : 'translate-x-0.5'}`}
+                  />
+                </span>
+              </button>
+ 
               <div className="my-1 h-px bg-[var(--tg-border)]" />
+ 
+              <button
+                type="button"
+                onClick={() => {
+                  onDownloadChat?.();
+                  onCloseNavMenu?.();
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
+              >
+                <Download size={14} />
+                Suhbatni yuklab olish
+              </button>
  
               <Link
                 href="/shikoyat"
@@ -189,6 +222,15 @@ export default function Header({
               >
                 <Info size={14} />
                 ToshkentGPT haqida
+              </Link>
+ 
+              <Link
+                href="/yordam"
+                onClick={onCloseNavMenu}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
+              >
+                <HelpCircle size={14} />
+                Yordam
               </Link>
  
               <Link
@@ -225,6 +267,24 @@ export default function Header({
               >
                 <Users size={14} />
                 Biz haqimizda
+              </Link>
+ 
+              <Link
+                href="/maxfiylik-siyosati"
+                onClick={onCloseNavMenu}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] text-[var(--tg-text-4)] transition hover:bg-[var(--tg-hover)]"
+              >
+                <ShieldCheck size={13} />
+                Maxfiylik siyosati
+              </Link>
+ 
+              <Link
+                href="/foydalanish-shartlari"
+                onClick={onCloseNavMenu}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] text-[var(--tg-text-4)] transition hover:bg-[var(--tg-hover)]"
+              >
+                <FileCheck size={13} />
+                Foydalanish shartlari
               </Link>
  
               <div className="my-1 h-px bg-[var(--tg-border)]" />

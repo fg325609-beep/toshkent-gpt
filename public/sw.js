@@ -10,14 +10,14 @@ const PRECACHE_URLS = [
   "/icons/icon-512.png",
   "/icons/logo-header.png",
 ];
-
+ 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)).catch(() => {})
   );
   self.skipWaiting();
 });
-
+ 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -26,14 +26,14 @@ self.addEventListener("activate", (event) => {
   );
   self.clients.claim();
 });
-
+ 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
-
+ 
   // Never cache API calls — chat must always hit the network.
   if (request.url.includes("/api/")) return;
   if (request.method !== "GET") return;
-
+ 
   event.respondWith(
     fetch(request)
       .then((response) => {
@@ -46,3 +46,39 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(request))
   );
 });
+ 
+// --- Push-bildirishnoma ---
+self.addEventListener("push", (event) => {
+  let data = { title: "ToshkentGPT", body: "", url: "/" };
+  try {
+    data = { ...data, ...event.data.json() };
+  } catch {
+    data.body = event.data?.text() || "";
+  }
+ 
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      data: { url: data.url || "/" },
+    })
+  );
+});
+ 
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window" }).then((clients) => {
+      for (const client of clients) {
+        if (client.url.includes(self.location.origin) && "focus" in client) {
+          client.navigate(url);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    })
+  );
+});
+ 
