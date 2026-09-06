@@ -1,7 +1,7 @@
 import webpush from 'web-push';
 import { auth } from '@/auth';
 import { isAdminEmail } from '../../_lib/admin';
-import { getAllSubscribedEmails, getUserSubscriptions, removeSubscription } from '../../_lib/push';
+import { getAllSubscribedEmails, getUserSubscriptions, removeSubscription, saveNotificationHistory } from '../../_lib/push';
  
 // Admin panelidan "hammaga e'lon yuborish" — masalan yangi funksiya chiqqanda
 // yoki muhim xabar bo'lganda. Avtomatik (vaqt bo'yicha, masalan "sinov
@@ -54,6 +54,8 @@ export async function POST(req) {
       }
     }
   }
+ 
+  await saveNotificationHistory(title, message).catch((err) => console.error("Bildirishnoma tarixini saqlashda xato:", err));
  
   return Response.json({ ok: true, sent, failed, totalUsers: emails.length });
 }

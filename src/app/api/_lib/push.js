@@ -42,3 +42,27 @@ export async function getAllSubscribedEmails() {
   return (await redis.smembers(ALL_EMAILS_KEY)) || [];
 }
  
+// ============================================================
+// Bildirishnomalar TARIXI — push xabari OS darajasida yuborilgach yo'qolib
+// ketadi (foydalanuvchi ko'rmasligi ham mumkin). Shu sabab har bir e'lon
+// alohida ro'yxatda ham saqlanadi — "Bildirishnomalar" sahifasida hamma
+// buni istalgan vaqt qayta ko'ra oladi.
+// ============================================================
+const HISTORY_KEY = 'tg:notifications:history';
+const MAX_HISTORY = 100;
+ 
+export async function saveNotificationHistory(title, message) {
+  const redis = getRedis();
+  if (!redis) return;
+  const entry = JSON.stringify({ title, message, createdAt: new Date().toISOString() });
+  await redis.lpush(HISTORY_KEY, entry);
+  await redis.ltrim(HISTORY_KEY, 0, MAX_HISTORY - 1);
+}
+ 
+export async function getNotificationHistory(limit = 30) {
+  const redis = getRedis();
+  if (!redis) return [];
+  const raw = (await redis.lrange(HISTORY_KEY, 0, limit - 1)) || [];
+  return raw.map((r) => (typeof r === 'string' ? JSON.parse(r) : r));
+}
+ 

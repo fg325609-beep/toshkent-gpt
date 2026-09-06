@@ -30,6 +30,14 @@ export function dismissToast(id) {
  
 /** type: 'success' | 'error' | 'info' */
 export function showToast(message, type = 'info', duration = 4000) {
+  // Bir xil matnli bildirishnoma allaqachon ko'rinib turgan bo'lsa, uni
+  // TAKRORLAMAYMIZ — masalan tugmani bir necha marta ketma-ket bossa,
+  // bir xil xato o'nlab marta to'planib qolmasin.
+  const existing = toasts.find((t) => t.message === message && t.type === type);
+  if (existing) {
+    return existing.id;
+  }
+ 
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   toasts = [...toasts, { id, message, type }];
   notify();

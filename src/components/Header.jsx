@@ -2,7 +2,7 @@
  
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User, Info, Users, Languages, Send, BrainCircuit, Gift, GraduationCap, ShieldCheck, FileCheck, Bell, Download, HelpCircle } from 'lucide-react';
+import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User, Info, Users, Languages, Send, BrainCircuit, Gift, GraduationCap, ShieldCheck, FileCheck, Bell, Download, HelpCircle, History } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { PLANS } from '@/app/plans';
  
@@ -51,6 +51,7 @@ export default function Header({
   pushEnabled,
   onTogglePush,
   onDownloadChat,
+  hasNewNotification,
 }) {
   const navMenuRef = useRef(null);
   const avatarMenuRef = useRef(null);
@@ -191,6 +192,18 @@ export default function Header({
                   />
                 </span>
               </button>
+ 
+              <Link
+                href="/bildirishnomalar"
+                onClick={onCloseNavMenu}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
+              >
+                <span className="flex items-center gap-2">
+                  <History size={14} />
+                  Bildirishnomalar tarixi
+                </span>
+                {hasNewNotification && <span className="h-1.5 w-1.5 rounded-full bg-[#E4A93B]" />}
+              </Link>
  
               <div className="my-1 h-px bg-[var(--tg-border)]" />
  

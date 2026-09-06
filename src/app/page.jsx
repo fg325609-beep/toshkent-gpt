@@ -322,6 +322,19 @@ function ToshkentGPT({ user }) {
   }
  
   const [pushEnabled, setPushEnabled] = useState(false);
+  const [hasNewNotification, setHasNewNotification] = useState(false);
+ 
+  useEffect(() => {
+    fetch('/api/notifications')
+      .then((r) => r.json())
+      .then((data) => {
+        const latest = data?.notifications?.[0];
+        if (!latest) return;
+        const lastSeen = localStorage.getItem('tg-last-seen-notification');
+        if (latest.createdAt !== lastSeen) setHasNewNotification(true);
+      })
+      .catch(() => {});
+  }, []);
  
   useEffect(() => {
     if (!isPushSupported()) return;
@@ -978,6 +991,7 @@ function ToshkentGPT({ user }) {
         pushEnabled={pushEnabled}
         onTogglePush={togglePushNotifications}
         onDownloadChat={downloadChat}
+        hasNewNotification={hasNewNotification}
       />
  
       {errorBanner && (
