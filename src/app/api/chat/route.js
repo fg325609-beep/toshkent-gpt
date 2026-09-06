@@ -57,6 +57,21 @@ async function notifyAdminOfAutoBlock(email) {
 }
  
 export async function POST(req) {
+  try {
+    return await handleChatRequest(req);
+  } catch (error) {
+    // OXIRGI xavfsizlik chizig'i — kutilmagan xato (masalan Redis vaqtincha
+    // ishlamay qolsa) butun chatni "500" bilan to'xtatib qo'ymasligi uchun.
+    // To'liq xato Vercel jurnaliga (Logs) yoziladi — shu orqali sababini topish oson.
+    console.error('Chat API kutilmagan xato:', error);
+    return Response.json(
+      { response: "Kechirasiz, vaqtincha texnik nosozlik yuz berdi. Birozdan keyin qayta urinib ko'ring." },
+      { status: 500 }
+    );
+  }
+}
+ 
+async function handleChatRequest(req) {
   const { text, image, pdf, previousInteractionId, profile: clientProfile, deepThink } = await req.json();
  
   if (!text && !image && !pdf) {

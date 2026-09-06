@@ -47,21 +47,36 @@ export function containsProfanity(text) {
 export async function isUserBlocked(email) {
   const redis = getRedis();
   if (!redis || !email) return false;
-  const blocked = await redis.get(blockedKey(email));
-  return Boolean(blocked);
+  try {
+    const blocked = await redis.get(blockedKey(email));
+    return Boolean(blocked);
+  } catch (err) {
+    // Redis vaqtincha javob bermasa ham, chat ISHLASHDA DAVOM ETISHI kerak —
+    // nazorat tizimi hech qachon asosiy funksiyani to'xtatib qo'ymasligi lozim.
+    console.error('isUserBlocked xato (chat davom etadi):', err);
+    return false;
+  }
 }
  
 export async function blockUser(email) {
   const redis = getRedis();
   if (!redis || !email) return;
-  await redis.set(blockedKey(email), '1');
+  try {
+    await redis.set(blockedKey(email), '1');
+  } catch (err) {
+    console.error('blockUser xato:', err);
+  }
 }
  
 export async function unblockUser(email) {
   const redis = getRedis();
   if (!redis || !email) return;
-  await redis.del(blockedKey(email));
-  await redis.del(violationKey(email));
+  try {
+    await redis.del(blockedKey(email));
+    await redis.del(violationKey(email));
+  } catch (err) {
+    console.error('unblockUser xato:', err);
+  }
 }
  
 /**
@@ -73,18 +88,28 @@ export async function recordViolation(email) {
   const redis = getRedis();
   if (!redis || !email) return { count: 0, blocked: false };
  
-  const count = await redis.incr(violationKey(email));
-  if (count >= VIOLATION_LIMIT) {
-    await blockUser(email);
-    return { count, blocked: true };
+  try {
+    const count = await redis.incr(violationKey(email));
+    if (count >= VIOLATION_LIMIT) {
+      await blockUser(email);
+      return { count, blocked: true };
+    }
+    return { count, blocked: false };
+  } catch (err) {
+    console.error('recordViolation xato (chat davom etadi):', err);
+    return { count: 0, blocked: false };
   }
-  return { count, blocked: false };
 }
  
 export async function getViolationCount(email) {
   const redis = getRedis();
   if (!redis || !email) return 0;
-  const count = await redis.get(violationKey(email));
-  return Number(count) || 0;
+  try {
+    const count = await redis.get(violationKey(email));
+    return Number(count) || 0;
+  } catch (err) {
+    console.error('getViolationCount xato:', err);
+    return 0;
+  }
 }
  
