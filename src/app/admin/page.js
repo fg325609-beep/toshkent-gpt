@@ -22,7 +22,6 @@ import { formatRelative } from '@/lib/format';
 import { showToast } from '@/lib/toast';
 import { PLANS } from '@/app/plans';
  
-const PIN_SESSION_KEY = 'tg-admin-unlocked';
  
 // Oddiy, kutubxonasiz "ustunli grafik" — oxirgi 14 kunlik faol
 // foydalanuvchilar sonini ko'rsatadi. Piksel balandliklardan foydalanamiz
@@ -78,14 +77,27 @@ function StatsChart({ data }) {
 export default function AdminPage() {
   const { status } = useSession();
  
+  const [accessChecked, setAccessChecked] = useState(false);
+  const [hasAccess, setHasAccess] = useState(false);
+ 
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
  
+  // Admin panel FAQAT admin email'lari uchun mavjud — boshqa hech kim, hatto
+  // to'g'ri manzilni bilsa ham, PIN kiritish oynasini ko'rmasligi kerak.
   useEffect(() => {
-    if (sessionStorage.getItem(PIN_SESSION_KEY) === '1') setUnlocked(true);
-  }, []);
+    if (status !== 'authenticated') return;
+    fetch('/api/admin/check-access')
+      .then((r) => r.json())
+      .then((data) => setHasAccess(Boolean(data?.isAdmin)))
+      .catch(() => setHasAccess(false))
+      .finally(() => setAccessChecked(true));
+  }, [status]);
+ 
+  // MUHIM: PIN hech qachon "eslab qolinmaydi" — har safar sahifaga kirganda
+  // (yoki yangilanganda) qayta so'raladi, xavfsizlik uchun ataylab shunday.
  
   async function submitPin(e) {
     e.preventDefault();
@@ -98,7 +110,6 @@ export default function AdminPage() {
         body: JSON.stringify({ password: pin }),
       });
       if (!res.ok) throw new Error((await res.json())?.error || 'Xatolik');
-      sessionStorage.setItem(PIN_SESSION_KEY, '1');
       setUnlocked(true);
     } catch (err) {
       setPinError(err.message);
@@ -107,7 +118,7 @@ export default function AdminPage() {
     }
   }
  
-  if (status === 'loading') {
+  if (status === 'loading' || (status === 'authenticated' && !accessChecked)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--tg-bg)]">
         <Loader2 size={20} className="animate-spin text-[var(--tg-text-3)]" />
@@ -126,6 +137,13 @@ export default function AdminPage() {
         </button>
       </div>
     );
+  }
+ 
+  // Admin bo'lmagan foydalanuvchi uchun — bu sahifa UMUMAN mavjud emasdek
+  // ko'rsatiladi (PIN oynasi ham, "ruxsat yo'q" degan aniq xabar ham emas —
+  // shunchaki oddiy, hech narsa bildirmaydigan holat).
+  if (!hasAccess) {
+    return <div className="min-h-screen bg-[var(--tg-bg)]" />;
   }
  
   if (!unlocked) {
