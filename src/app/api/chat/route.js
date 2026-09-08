@@ -8,11 +8,15 @@ import { isUserBlocked, containsProfanity, recordViolation } from '../_lib/moder
 import {
   IMAGE_COMMAND_RE,
   PRESENTATION_COMMAND_RE,
+  SEARCH_COMMAND_RE,
+  CODE_COMMAND_RE,
   buildSystemInstruction,
   extractFacts,
   generateImageViaPollinations,
   generateImageViaGemini,
   generatePresentation,
+  performWebSearch,
+  executeCode,
 } from '../_lib/ai-generation';
  
 // Uzun javoblar Vercel'ning standart vaqt chegarasida kesilib qolmasligi uchun.
@@ -246,6 +250,90 @@ async function handleChatRequest(req) {
         } catch (error) {
           console.error('Rasm yaratishda xato:', error);
           send({ type: 'error', message: error.message || 'Rasm yaratishda xatolik yuz berdi.' });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+ 
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      },
+    });
+  }
+ 
+  // "/qidir <savol>" — internet orqali joriy ma'lumot qidirish.
+  const searchMatch = text?.trim().match(SEARCH_COMMAND_RE);
+  if (searchMatch) {
+    const query = searchMatch[1].trim();
+    const encoder = new TextEncoder();
+ 
+    const readable = new ReadableStream({
+      async start(controller) {
+        function send(obj) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        }
+ 
+        try {
+          send({ type: 'chunk', text: 'Internetdan qidirilmoqda... 🔍' });
+ 
+          const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
+          const systemInstruction = buildSystemInstruction(profile, profile?.til);
+          const answer = await performWebSearch(ai, MODEL, query, systemInstruction);
+ 
+          send({ type: 'done', text: answer, plan: applyUsage() });
+        } catch (error) {
+          console.error('Qidiruvda xato:', error);
+          send({ type: 'error', message: error.message || 'Qidiruvda xatolik yuz berdi.' });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+ 
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      },
+    });
+  }
+ 
+  // "/kod <masala>" — Python kodini HAQIQATAN ishga tushirib, natijasini
+  // (kerak bo'lsa grafik bilan) qaytarish.
+  const codeMatch = text?.trim().match(CODE_COMMAND_RE);
+  if (codeMatch) {
+    const task = codeMatch[1].trim();
+    const encoder = new TextEncoder();
+ 
+    const readable = new ReadableStream({
+      async start(controller) {
+        function send(obj) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        }
+ 
+        try {
+          send({ type: 'chunk', text: 'Kod yozilib, ishga tushirilmoqda... 💻' });
+ 
+          const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
+          const systemInstruction = buildSystemInstruction(profile, profile?.til);
+          const { text: resultText, code, imageBase64 } = await executeCode(ai, MODEL, task, systemInstruction);
+ 
+          let finalText = resultText || '';
+          if (code) finalText += `\n\n\`\`\`python\n${code}\n\`\`\``;
+ 
+          const payload = { type: 'done', text: finalText || 'Bajarildi.', plan: applyUsage() };
+          if (imageBase64) {
+            payload.image = { dataUrl: `data:image/png;base64,${imageBase64}`, mimeType: 'image/png' };
+          }
+          send(payload);
+        } catch (error) {
+          console.error('Kod ishga tushirishda xato:', error);
+          send({ type: 'error', message: error.message || 'Kod ishga tushirishda xatolik yuz berdi.' });
         } finally {
           controller.close();
         }

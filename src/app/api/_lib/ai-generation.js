@@ -15,6 +15,13 @@ Shu bilan birga sen JUDA KUCHLI, professional dasturchisan — istalgan tilda (f
 export const IMAGE_COMMAND_RE = /^\/rasm\s+([\s\S]+)/i;
 export const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image';
  
+// "/qidir <savol>" — internet orqali joriy ma'lumot qidirish uchun.
+export const SEARCH_COMMAND_RE = /^\/qidir\s+([\s\S]+)/i;
+ 
+// "/kod <masala>" — Python kodini haqiqatan ISHGA TUSHIRIB, natijasini
+// (jumladan grafik/diagramma rasm sifatida) qaytarish uchun.
+export const CODE_COMMAND_RE = /^\/kod\s+([\s\S]+)/i;
+ 
 // "/prezentatsiya <mavzu>" yoki "/taqdimot <mavzu>".
 export const PRESENTATION_COMMAND_RE = /^\/(prezentatsiya|taqdimot)\s+([\s\S]+)/i;
 const PRESENTATION_JSON_PROMPT = (topic) => `Sen taqdimot (prezentatsiya) tuzuvchi yordamchisan. Talaba/o'quvchi uchun "${topic}" mavzusida oʻzbek tilida, aniq va bilimga boy taqdimot tuzib ber.
@@ -154,5 +161,57 @@ export async function generatePresentation(ai, model, topic) {
   const safeFilename = `${(data.title || topic).slice(0, 60).replace(/[^\p{L}\p{N}\s-]/gu, '').trim() || 'prezentatsiya'}.pptx`;
  
   return { base64, filename: safeFilename, title: data.title || topic, slideCount: data.slides.length + 1 };
+}
+ 
+// ============================================================
+// Internet qidiruv — "generateContent" (BARQAROR API, beta Interactions
+// EMAS) orqali "google_search" vositasidan foydalanadi. Avvalgi urinish
+// beta Interactions API'da muvaffaqiyatsiz bo'lgan edi — Google'ning o'zi
+// ham stabil ishlash uchun aynan generateContent'ni tavsiya qiladi.
+// ============================================================
+export async function performWebSearch(ai, model, query, style) {
+  const prompt = `${style}\n\nFoydalanuvchi savoli: ${query}\n\nInternetdan qidirib, ENG SO'NGGI va aniq ma'lumot bilan javob ber. Manbalarga ishora qilishing shart emas, faqat ishonchli va joriy ma'lumot ber.`;
+ 
+  const result = await ai.models.generateContent({
+    model,
+    contents: prompt,
+    config: { tools: [{ googleSearch: {} }] },
+  });
+ 
+  const text = (result?.text || result?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '').trim();
+  if (!text) throw new Error("Qidiruv natijasini olib bo'lmadi — birozdan keyin qayta urinib ko'r.");
+  return text;
+}
+ 
+// ============================================================
+// Kod ishga tushirish — Google'ning tayyor "code_execution" vositasi
+// orqali. Model Python kodi yozadi, HAQIQATAN ishga tushiradi (xavfsiz,
+// Google'ning o'z serverida), va natijasini (jumladan grafik/diagramma
+// rasm sifatida) qaytaradi.
+// ============================================================
+export async function executeCode(ai, model, task, style) {
+  const prompt = `${style}\n\nVazifa: ${task}\n\nBuni yechish uchun Python kodi yoz va ISHGA TUSHIR (code execution vositasidan foydalan). Agar grafik/diagramma kerak bo'lsa, matplotlib bilan chiz.`;
+ 
+  const result = await ai.models.generateContent({
+    model,
+    contents: prompt,
+    config: { tools: [{ codeExecution: {} }] },
+  });
+ 
+  const parts = result?.candidates?.[0]?.content?.parts || [];
+  let text = '';
+  let code = '';
+  let imageBase64 = null;
+ 
+  for (const part of parts) {
+    if (part.text) text += part.text;
+    if (part.executableCode?.code) code += part.executableCode.code;
+    if (part.inlineData?.data && part.inlineData.mimeType?.startsWith('image/')) {
+      imageBase64 = part.inlineData.data;
+    }
+  }
+ 
+  if (!text && !code) throw new Error("Kodni ishga tushirib bo'lmadi — birozdan keyin qayta urinib ko'r.");
+  return { text: text.trim(), code: code.trim(), imageBase64 };
 }
  

@@ -6,11 +6,15 @@ import { touchUser } from '../../_lib/admin';
 import {
   IMAGE_COMMAND_RE,
   PRESENTATION_COMMAND_RE,
+  SEARCH_COMMAND_RE,
+  CODE_COMMAND_RE,
   buildSystemInstruction,
   extractFacts,
   generateImageViaPollinations,
   generateImageViaGemini,
   generatePresentation,
+  performWebSearch,
+  executeCode,
 } from '../../_lib/ai-generation';
 import { sendTelegramMessage, sendTelegramPhoto, sendTelegramDocument, sendTelegramChatAction } from '../../_lib/telegram';
 import { isUserBlocked, containsProfanity, recordViolation } from '../../_lib/moderation';
@@ -203,6 +207,48 @@ export async function POST(req) {
     } catch (error) {
       console.error('Telegram rasm yaratishda xato:', error);
       await sendTelegramMessage(chatId, error.message || 'Rasm yaratishda xatolik yuz berdi.');
+    }
+    return Response.json({ ok: true });
+  }
+ 
+  // --- "/qidir <savol>" — internet qidiruv ---
+  const searchMatch = text.match(SEARCH_COMMAND_RE);
+  if (searchMatch) {
+    const query = searchMatch[1].trim();
+    try {
+      await sendTelegramChatAction(chatId, 'typing');
+      const MODEL = plan ? modelForPlan(plan) : DEFAULT_MODEL;
+      const systemInstruction = buildSystemInstruction(profile, profile?.til);
+      const answer = await performWebSearch(ai, MODEL, query, systemInstruction);
+      await sendTelegramMessage(chatId, answer);
+      applyUsage();
+    } catch (error) {
+      console.error('Telegram qidiruvda xato:', error);
+      await sendTelegramMessage(chatId, error.message || 'Qidiruvda xatolik yuz berdi.');
+    }
+    return Response.json({ ok: true });
+  }
+ 
+  // --- "/kod <masala>" — kod ishga tushirish ---
+  const codeMatch = text.match(CODE_COMMAND_RE);
+  if (codeMatch) {
+    const task = codeMatch[1].trim();
+    try {
+      await sendTelegramChatAction(chatId, 'typing');
+      const MODEL = plan ? modelForPlan(plan) : DEFAULT_MODEL;
+      const systemInstruction = buildSystemInstruction(profile, profile?.til);
+      const { text: resultText, code, imageBase64 } = await executeCode(ai, MODEL, task, systemInstruction);
+      let finalText = resultText || '';
+      if (code) finalText += `\n\n\`\`\`python\n${code}\n\`\`\``;
+      if (imageBase64) {
+        await sendTelegramPhoto(chatId, Buffer.from(imageBase64, 'base64'), finalText.slice(0, 1000) || 'Bajarildi.');
+      } else {
+        await sendTelegramMessage(chatId, finalText || 'Bajarildi.');
+      }
+      applyUsage();
+    } catch (error) {
+      console.error('Telegram kod ishga tushirishda xato:', error);
+      await sendTelegramMessage(chatId, error.message || 'Kod ishga tushirishda xatolik yuz berdi.');
     }
     return Response.json({ ok: true });
   }

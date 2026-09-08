@@ -4,8 +4,8 @@ import MessageBubble from './MessageBubble';
  
 const SUGGESTIONS = [
   'Aka, ishlar qalay?',
-  '/prezentatsiya fotosintez jarayoni',
-  'Bitta kulgili gap ayt',
+  '/qidir bugungi dollar kursi',
+  '/kod fibonachchi ketma-ketligini grafikda chiz',
   '/rasm gitara chalayotgan mushuk',
 ];
  
