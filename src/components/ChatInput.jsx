@@ -1,7 +1,25 @@
 'use client';
  
-import { Paperclip, Mic, Square, Send, X, Film, FileText, Brain, Loader2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Paperclip, Mic, Square, Send, X, Film, FileText, Brain, Loader2, ChevronDown } from 'lucide-react';
 import { formatTime } from '@/lib/format';
+import { PLANS } from '@/app/plans';
+ 
+// Tashqariga bosilganda tarif dropdown'ini yopadi (Header'dagi bilan bir xil,
+// sinalgan uslub — 'click', 'pointerdown' emas, aks holda tugma bosilishi
+// ULGURMASDAN yopilib qolishi mumkin edi).
+function usePlanMenuClose(open, onClose, ref) {
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    }
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+}
  
 // ============================================================
 // Pastki panel: tarif-limit banneri, biriktirma (rasm/video/fayl) ko'rinishi
@@ -29,6 +47,10 @@ export default function ChatInput({
   onToggleDeepThink,
 }) {
   const canSend = Boolean(input.trim() || attachment);
+  const router = useRouter();
+  const [planMenuOpen, setPlanMenuOpen] = useState(false);
+  const planMenuRef = useRef(null);
+  usePlanMenuClose(planMenuOpen, () => setPlanMenuOpen(false), planMenuRef);
  
   return (
     <footer className="relative z-10 border-t border-[var(--tg-border)] bg-[var(--tg-bg)] px-3 py-4 sm:px-6">
@@ -36,9 +58,38 @@ export default function ChatInput({
         {planInfo && typeof planInfo.limit === 'number' && (
           <div className="mb-2 rounded-lg border border-[var(--tg-border)] bg-[var(--tg-hover)] px-3 py-1.5">
             <div className="flex items-center justify-between text-[11px] text-[var(--tg-text-2)]">
-              <span>
-                {planInfo.mode === 'trial' ? `${planInfo.name} sinovi` : planInfo.name}: {planInfo.used}/{planInfo.limit} xabar
-              </span>
+              <div className="relative" ref={planMenuRef}>
+                <button
+                  onClick={() => setPlanMenuOpen((v) => !v)}
+                  className="flex items-center gap-1 font-medium text-[var(--tg-text-1)] transition hover:text-[#2F9E96]"
+                >
+                  {planInfo.mode === 'trial' ? `${planInfo.name} sinovi` : planInfo.name}
+                  <ChevronDown size={11} className={`transition-transform ${planMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                <span className="ml-1 text-[var(--tg-text-2)]">
+                  : {planInfo.used}/{planInfo.limit} xabar
+                </span>
+ 
+                {planMenuOpen && (
+                  <div className="tg-pop-in absolute bottom-full left-0 z-20 mb-2 w-44 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-1 shadow-xl">
+                    {Object.values(PLANS).map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          setPlanMenuOpen(false);
+                          router.push('/tariflar');
+                        }}
+                        className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-[var(--tg-hover)] ${
+                          p.id === planInfo.id ? 'text-[#2F9E96]' : 'text-[var(--tg-text-2)]'
+                        }`}
+                      >
+                        <span>{p.name}</span>
+                        <span className="text-[10px] text-[var(--tg-text-4)]">{p.priceLabel}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               {planInfo.resetAt && planInfo.remaining <= 3 && <span>Soat {formatTime(planInfo.resetAt)}da yangilanadi</span>}
             </div>
             <div className="mt-1 h-1 overflow-hidden rounded-full bg-[var(--tg-border)]">

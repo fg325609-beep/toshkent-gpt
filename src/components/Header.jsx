@@ -2,9 +2,7 @@
  
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Menu, Plus, Settings, Sun, Moon, MessageSquare, Sparkles, LogOut, User, Info, Users, Languages, Send, BrainCircuit, Gift, GraduationCap, ShieldCheck, FileCheck, Bell, Download, HelpCircle, History } from 'lucide-react';
-import { signOut } from 'next-auth/react';
-import { PLANS } from '@/app/plans';
+import { Menu, Plus, Settings, Sun, Moon, User } from 'lucide-react';
  
 // Ochiq menyu tashqarisiga bosilganda uni yopadi. Avval bu "butun ekranni
 // qoplaydigan ko'rinmas parda" (fixed inset-0 overlay) orqali qilinardi, lekin
@@ -36,28 +34,15 @@ export default function Header({
   user,
   theme,
   onToggleTheme,
-  language,
-  onChangeLanguage,
-  planId,
   navMenuOpen,
   onToggleNavMenu,
   onCloseNavMenu,
-  avatarMenuOpen,
-  onToggleAvatarMenu,
-  onCloseAvatarMenu,
   onOpenHistory,
   onNewChat,
-  onConnectTelegram,
-  pushEnabled,
-  onTogglePush,
-  onDownloadChat,
-  hasNewNotification,
 }) {
   const navMenuRef = useRef(null);
-  const avatarMenuRef = useRef(null);
  
   useCloseOnOutsideClick(navMenuOpen, onCloseNavMenu, navMenuRef);
-  useCloseOnOutsideClick(avatarMenuOpen, onCloseAvatarMenu, avatarMenuRef);
  
   return (
     <header className="relative z-30 flex items-center justify-between border-b border-[var(--tg-border)] bg-[var(--tg-bg)]/90 px-4 py-3 backdrop-blur sm:px-6">
@@ -135,217 +120,32 @@ export default function Header({
                 {theme === 'dark' ? 'Yorugʻ rejim' : 'Qorongʻu rejim'}
               </button>
  
-              <div className="px-3 py-2">
-                <div className="mb-1.5 flex items-center gap-2 text-xs text-[var(--tg-text-2)]">
-                  <Languages size={14} />
-                  Bot tili
-                </div>
-                <div className="flex gap-1">
-                  {[
-                    { id: 'auto', label: 'Avto' },
-                    { id: 'uz', label: 'UZ' },
-                    { id: 'ru', label: 'RU' },
-                    { id: 'en', label: 'EN' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => onChangeLanguage?.(opt.id)}
-                      className={`flex-1 rounded-lg border px-1.5 py-1 text-[11px] font-medium transition ${
-                        (language || 'auto') === opt.id
-                          ? 'border-[#2F9E96] bg-[#2F9E96]/15 text-[#2F9E96]'
-                          : 'border-[var(--tg-border)] text-[var(--tg-text-3)] hover:bg-[var(--tg-hover)]'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
- 
-              <button
-                type="button"
-                onClick={() => {
-                  onConnectTelegram?.();
-                  onCloseNavMenu?.();
-                }}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <Send size={14} />
-                Telegram bilan bogʻlash
-              </button>
- 
-              <button
-                type="button"
-                onClick={() => onTogglePush?.()}
-                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <span className="flex items-center gap-2">
-                  <Bell size={14} />
-                  Bildirishnomalar
-                </span>
-                <span
-                  className={`h-4 w-7 rounded-full transition ${pushEnabled ? 'bg-[#2F9E96]' : 'bg-[var(--tg-border-strong)]'}`}
-                >
-                  <span
-                    className={`block h-3 w-3 translate-y-0.5 rounded-full bg-white transition ${pushEnabled ? 'translate-x-3.5' : 'translate-x-0.5'}`}
-                  />
-                </span>
-              </button>
- 
-              <Link
-                href="/bildirishnomalar"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <span className="flex items-center gap-2">
-                  <History size={14} />
-                  Bildirishnomalar tarixi
-                </span>
-                {hasNewNotification && <span className="h-1.5 w-1.5 rounded-full bg-[#E4A93B]" />}
-              </Link>
- 
-              <div className="my-1 h-px bg-[var(--tg-border)]" />
- 
-              <button
-                type="button"
-                onClick={() => {
-                  onDownloadChat?.();
-                  onCloseNavMenu?.();
-                }}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <Download size={14} />
-                Suhbatni yuklab olish
-              </button>
- 
-              <Link
-                href="/shikoyat"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <MessageSquare size={14} />
-                Shikoyat va takliflar
-              </Link>
- 
-              <Link
-                href="/toshkentgpt-haqida"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <Info size={14} />
-                ToshkentGPT haqida
-              </Link>
- 
-              <Link
-                href="/yordam"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <HelpCircle size={14} />
-                Yordam
-              </Link>
- 
-              <Link
-                href="/mening-malumotlarim"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <BrainCircuit size={14} />
-                Men haqimda nima bilasan?
-              </Link>
- 
-              <Link
-                href="/mutaxassislik"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <GraduationCap size={14} />
-                Men nimani oʻrganishim kerak?
-              </Link>
- 
-              <Link
-                href="/taklif"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <Gift size={14} />
-                Doʻstlarni taklif qilish
-              </Link>
- 
-              <Link
-                href="/biz-haqimizda"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <Users size={14} />
-                Biz haqimizda
-              </Link>
- 
-              <Link
-                href="/maxfiylik-siyosati"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] text-[var(--tg-text-4)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <ShieldCheck size={13} />
-                Maxfiylik siyosati
-              </Link>
- 
-              <Link
-                href="/foydalanish-shartlari"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] text-[var(--tg-text-4)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <FileCheck size={13} />
-                Foydalanish shartlari
-              </Link>
- 
               <div className="my-1 h-px bg-[var(--tg-border)]" />
  
               <Link
-                href="/tariflar"
+                href="/sozlamalar"
                 onClick={onCloseNavMenu}
-                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-medium text-[var(--tg-text-1)] transition hover:bg-[var(--tg-hover)]"
               >
-                <span className="flex items-center gap-2">
-                  <Sparkles size={14} />
-                  Tariflar
-                </span>
-                <span className="rounded-full border border-[var(--tg-border)] px-1.5 py-0.5 text-[10px]">
-                  {PLANS[planId || 'lite']?.name || 'Lite'}
-                </span>
+                <Settings size={14} />
+                Barcha sozlamalar
               </Link>
             </div>
           )}
         </div>
  
-        {/* Profil Menyusi */}
-        <div className="relative" ref={avatarMenuRef}>
-          <button
-            onClick={onToggleAvatarMenu}
-            className="ml-1 flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-[var(--tg-border)]"
-          >
-            {user?.image ? (
-              <img src={user.image} alt={user.name || ''} className="h-full w-full object-cover" />
-            ) : (
-              <User size={14} className="text-[var(--tg-text-2)]" />
-            )}
-          </button>
- 
-          {avatarMenuOpen && (
-            <div className="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-1 shadow-xl">
-              <div className="truncate px-3 py-2 text-xs text-[var(--tg-text-3)]">{user?.email}</div>
-              <button
-                type="button"
-                onClick={() => signOut()}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <LogOut size={13} />
-                Chiqish
-              </button>
-            </div>
+        {/* Profil — to'g'ridan-to'g'ri Sozlamalar sahifasiga olib boradi */}
+        <Link
+          href="/sozlamalar"
+          title="Sozlamalar va profil"
+          className="ml-1 flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--tg-border)]"
+        >
+          {user?.image ? (
+            <img src={user.image} alt={user.name || ''} className="h-full w-full object-cover" />
+          ) : (
+            <User size={14} className="text-[var(--tg-text-2)]" />
           )}
-        </div>
+        </Link>
       </div>
     </header>
   );
