@@ -85,9 +85,36 @@ export function extractFacts(rawText) {
   return { facts, cleanText };
 }
  
+/**
+ * Rasm modellari O'ZBEK TILINI TUSHUNMAYDI — shuning uchun tavsifni avval
+ * inglizchaga o'giramiz. Aks holda "suvda suzayotgan suv parisi" degan matn
+ * modelga tanishsiz bo'lib, butunlay boshqa narsa (masalan mashina) chizilardi.
+ * Tarjima qilib bo'lmasa, asl matn bilan davom etamiz — funksiya to'xtamaydi.
+ */
+export async function translatePromptToEnglish(ai, model, prompt) {
+  // "Bu o'zbekchami yoki inglizchami?" deb taxmin qilmaymiz — o'zbek lotin
+  // yozuvi ham inglizcha kabi oddiy harflardan iborat, shuning uchun ishonchli
+  // ajratib bo'lmaydi. HAR DOIM tarjimaga yuboramiz: matn allaqachon inglizcha
+  // bo'lsa, model uni deyarli o'zgartirmaydi.
+  try {
+    const res = await ai.models.generateContent({
+      model,
+      contents:
+        `Translate this image description into clear, vivid English for an AI image generator. ` +
+        `Reply with ONLY the English description, nothing else:\n\n${prompt}`,
+    });
+    const out = (res?.text || res?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    return out || prompt;
+  } catch (err) {
+    console.error('[RASM] Tarjima qilib bo\'lmadi, asl matn ishlatiladi:', err?.message || err);
+    return prompt;
+  }
+}
+ 
 /** Bepul rasm yaratish (Pollinations.ai) — API kalit kerak emas. */
 export async function generateImageViaPollinations(prompt) {
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&enhance=true`;
+  // enhance=true o'chirildi: u tavsifni qayta yozib, natijani buzib yuborardi.
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true`;
   const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
   if (!res.ok) {
     throw new Error(`Rasm yaratib bo'lmadi (server javobi: ${res.status}) — birozdan keyin qayta urinib ko'r.`);

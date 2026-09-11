@@ -24,6 +24,7 @@ import {
   Sparkles,
   LogOut,
   ChevronRight,
+   Film,
   Loader2,
   Download,
   FolderOpen,

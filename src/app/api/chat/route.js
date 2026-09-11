@@ -14,10 +14,12 @@ import {
   extractFacts,
   generateImageViaPollinations,
   generateImageViaGemini,
+  translatePromptToEnglish,
   generatePresentation,
   performWebSearch,
   executeCode,
 } from '../_lib/ai-generation';
+import { generateImageViaLocal } from '../_lib/local-image';
  
 // Uzun javoblar Vercel'ning standart vaqt chegarasida kesilib qolmasligi uchun.
 export const maxDuration = 60;
@@ -225,18 +227,40 @@ async function handleChatRequest(req) {
           // bepul Pollinations.ai ishlatiladi.
           const isPremiumImagePlan = ['max', 'promax'].includes(effectivePlan.plan?.id);
  
+          // MUHIM: rasm modellari o'zbek tilini tushunmaydi — shuning uchun
+          // tavsifni avval inglizchaga o'giramiz. Aynan shu sabab ilgari
+          // "suv parisi" so'ralganda mashina chizilar edi.
+          const TR_MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
+          const englishPrompt = await translatePromptToEnglish(ai, TR_MODEL, imagePrompt);
+ 
           let result;
-          if (isPremiumImagePlan) {
+          let geminiErrorText = null;
+ 
+          // 1-navbat: o'z kompyuteringizdagi worker (IMAGE_PROVIDER=local bo'lsa).
+          if (process.env.IMAGE_PROVIDER === 'local') {
             try {
-              result = await generateImageViaGemini(ai, imagePrompt);
+              result = await generateImageViaLocal(englishPrompt);
+            } catch (localError) {
+              geminiErrorText = localError?.message || String(localError);
+              console.error('[RASM] Lokal worker xatosi:', geminiErrorText);
+            }
+          }
+ 
+          // 2-navbat: Gemini (Max/Pro Max uchun).
+          if (!result && isPremiumImagePlan) {
+            try {
+              result = await generateImageViaGemini(ai, englishPrompt);
             } catch (geminiError) {
-              // Gemini ishlamasa (masalan billing yoqilmagan bo'lsa) — foydalanuvchiga
-              // xato ko'rsatmasdan, bepul Pollinations'ga tushib qolamiz.
-              console.error("Gemini rasm modeli ishlamadi, Pollinations'ga o'tildi:", geminiError);
+              // Xatoni yashirmaymiz — sababi chatda ko'rinib tursin.
+              geminiErrorText = geminiError?.message || String(geminiError);
+              console.error('[RASM] Gemini xatosi:', geminiErrorText);
             }
           }
           if (!result) {
-            result = await generateImageViaPollinations(imagePrompt);
+            if (geminiErrorText) {
+              send({ type: 'chunk', text: `\n\n⚠️ Gemini: ${geminiErrorText}\nBepul model bilan chizyapman...\n\n` });
+            }
+            result = await generateImageViaPollinations(englishPrompt);
           }
  
           const dataUrl = `data:${result.mimeType};base64,${result.base64}`;

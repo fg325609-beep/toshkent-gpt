@@ -1,0 +1,27 @@
+# ToshkentGPT lokal video worker uchun kerakli kutubxonalar.
+#
+# MUHIM — avval torch'ni O'ZINGIZGA MOS holda o'rnating:
+#
+#   NVIDIA kartangiz bo'lsa (kelajakda RTX 5090):
+#     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+#
+#   AMD karta, Windows (hozirgi RX 550):
+#     pip install torch torchvision
+#     pip install torch-directml
+#
+#   Hech qanday karta yo'q (faqat protsessor):
+#     pip install torch torchvision
+#
+# Keyin:  pip install -r requirements.txt
+ 
+diffusers>=0.31.0
+transformers>=4.44.0
+accelerate>=0.34.0
+safetensors>=0.4.5
+pillow>=10.0.0
+imageio>=2.35.0
+imageio-ffmpeg>=0.5.1
+fastapi>=0.115.0
+uvicorn>=0.30.0
+pydantic>=2.8.0
+ 
