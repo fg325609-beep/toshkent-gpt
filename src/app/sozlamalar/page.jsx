@@ -301,6 +301,7 @@ export default function SozlamalarPage() {
           <Row icon={Download} label="Suhbatni yuklab olish" onClick={downloadCurrentChat} />
           <Row icon={FolderOpen} label="Fayllar tarixi" href="/fayllar" />
           <Row icon={Film} label="Rasmlardan video" href="/video" />
+          <Row icon={Sparkles} label="AI video" href="/video-ai" />
         </div>
  
         {/* --- KO'RINISH --- */}

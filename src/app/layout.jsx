@@ -20,7 +20,7 @@ const bricolage = Bricolage_Grotesque({
   weight: ["600", "700", "800"],
 });
  
-const SITE_URL = "https://toshkent-gpt.vercel.app";
+const SITE_URL = "https://toshkentgpt.uz";
 const TITLE = "ToshkentGPT — koʻcha tilida gaplashuvchi AI";
 const SHORT_TITLE = "ToshkentGPT";
 const DESCRIPTION =
