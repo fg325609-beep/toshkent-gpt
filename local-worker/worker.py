@@ -1,37 +1,37 @@
 """
 ToshkentGPT — LOKAL video ishlab chiqaruvchi (worker).
- 
+
 Bu dastur SIZNING kompyuteringizda ishlaydi va rasmdan video yasaydi.
 Hech qanday API kalit, hech qanday oylik to'lov kerak emas.
- 
+
 ENG MUHIM XUSUSIYATI — O'ZI MOSLASHADI:
   * NVIDIA karta topilsa      -> CUDA (eng tez, eng sifatli)
   * AMD karta (Windows)       -> DirectML
   * Hech narsa topilmasa      -> CPU (ishlaydi, lekin juda sekin)
 Va topilgan xotira hajmiga qarab sifat darajasini O'ZI tanlaydi.
- 
+
 Ya'ni bugun i5-12400F + RX 550 da ishga tushadi (sekin, past sifatda),
 ertaga RTX 5090 qo'ysangiz — HECH NARSA O'ZGARTIRMASDAN to'liq
 quvvatda ishlay boshlaydi.
- 
+
 Ishga tushirish:
     pip install -r requirements.txt
     python worker.py
 """
- 
+
 import base64
 import io
 import os
 import threading
 import uuid
- 
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from PIL import Image
- 
+
 app = FastAPI(title="ToshkentGPT Local Video Worker")
- 
+
 # Sayt (Vercel) shu workerga murojaat qila olishi uchun.
 app.add_middleware(
     CORSMiddleware,
@@ -39,18 +39,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
- 
+
 # Oddiy himoya: faqat shu parolni bilgan murojaat qabul qilinadi.
 WORKER_TOKEN = os.environ.get("WORKER_TOKEN", "")
- 
+
 # Bajarilayotgan vazifalar: {job_id: {...}}
 JOBS = {}
 JOBS_LOCK = threading.Lock()
- 
+
 _pipe = None
 _device_info = None
- 
- 
+
+
 # ============================================================
 # 1-QISM: Uskunani aniqlash va sifat darajasini tanlash
 # ============================================================
@@ -59,9 +59,15 @@ def detect_device():
     global _device_info
     if _device_info:
         return _device_info
- 
+
+    # Qochish yo'li: GPU (masalan DirectML) doim xotira yetmay xato bersa,
+    # shuni "1" qilib qo'yib majburan protsessorga o'tkazish mumkin (sekin, lekin ishonchli).
+    if os.environ.get("FORCE_CPU_VIDEO") == "1":
+        _device_info = {"backend": "cpu", "device": "cpu", "name": "CPU (majburiy)", "vram_gb": 0.0, "fp16": False}
+        return _device_info
+
     import torch
- 
+
     # 1) NVIDIA
     if torch.cuda.is_available():
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
@@ -73,7 +79,7 @@ def detect_device():
             "fp16": True,
         }
         return _device_info
- 
+
     # 2) AMD/Intel Windows'da (DirectML). RX 550 kabi eski kartalar shu yerda ishlaydi.
     try:
         import torch_directml  # noqa
@@ -84,12 +90,12 @@ def detect_device():
             "name": torch_directml.device_name(0),
             # DirectML orqali aniq VRAM o'qib bo'lmaydi — ehtiyotkor taxmin.
             "vram_gb": 4.0,
-            "fp16": False,  # eski AMD kartalarida fp16 beqaror ishlaydi
+            "fp16": True,  # fp16 xotirani 2 barobar tejaydi — 4GB kartada shart
         }
         return _device_info
     except Exception:
         pass
- 
+
     # 3) Hech narsa yo'q — protsessor
     _device_info = {
         "backend": "cpu",
@@ -99,8 +105,8 @@ def detect_device():
         "fp16": False,
     }
     return _device_info
- 
- 
+
+
 def pick_tier(info):
     """
     Mavjud xotiraga qarab sifat darajasini tanlaydi.
@@ -108,7 +114,7 @@ def pick_tier(info):
     """
     vram = info["vram_gb"]
     backend = info["backend"]
- 
+
     if backend == "cpu":
         # Protsessorda faqat eng kichik variant real — aks holda soatlab kutiladi.
         return {"name": "minimal", "frames": 8, "size": 320, "steps": 10, "offload": "sequential"}
@@ -119,9 +125,9 @@ def pick_tier(info):
     if vram >= 8:
         return {"name": "medium", "frames": 14, "size": 576, "steps": 20, "offload": "model"}
     # 4-6 GB (RX 550 shu yerga tushadi)
-    return {"name": "low", "frames": 8, "size": 320, "steps": 12, "offload": "sequential"}
- 
- 
+    return {"name": "low", "frames": 6, "size": 256, "steps": 10, "offload": "sequential"}
+
+
 def pick_image_tier(info):
     """
     Rasm uchun daraja. Rasm modeli videodan ANCHA yengil —
@@ -134,9 +140,9 @@ def pick_image_tier(info):
         return {"name": "high", "size": 1024, "steps": 30}
     if vram >= 8:
         return {"name": "medium", "size": 768, "steps": 28}
-    return {"name": "low", "size": 512, "steps": 25}   # 4-6 GB
- 
- 
+    return {"name": "low", "size": 384, "steps": 25}   # 4-6 GB (RX 550)
+
+
 # ============================================================
 # 2-QISM: Modelni yuklash
 # ============================================================
@@ -145,57 +151,70 @@ def get_pipeline():
     global _pipe
     if _pipe is not None:
         return _pipe
- 
+
     import torch
     from diffusers import StableVideoDiffusionPipeline
- 
+
     info = detect_device()
     tier = pick_tier(info)
     dtype = torch.float16 if info["fp16"] else torch.float32
- 
+
     print(f"[worker] Uskuna: {info['name']} ({info['backend']}), daraja: {tier['name']}")
     print("[worker] Model yuklanmoqda (birinchi safar ~10 GB yuklab olinadi, sabr qiling)...")
- 
+
     pipe = StableVideoDiffusionPipeline.from_pretrained(
         "stabilityai/stable-video-diffusion-img2vid-xt",
         torch_dtype=dtype,
         variant="fp16" if info["fp16"] else None,
     )
- 
+
     # Xotirani tejash — kam xotirali kartalarda ishga tushishi uchun shart.
-    if tier["offload"] == "sequential" and info["backend"] == "cuda":
-        pipe.enable_sequential_cpu_offload()
-    elif tier["offload"] == "model" and info["backend"] == "cuda":
-        pipe.enable_model_cpu_offload()
+    if info["backend"] == "cuda":
+        if tier["offload"] == "sequential":
+            pipe.enable_sequential_cpu_offload()
+        elif tier["offload"] == "model":
+            pipe.enable_model_cpu_offload()
+        else:
+            pipe = pipe.to(info["device"])
+    elif info["backend"] == "directml":
+        # DirectML uchun ham offloadni sinaymiz; ishlamasa oddiy usulga qaytamiz.
+        try:
+            if tier["offload"] in ("sequential", "model"):
+                pipe.enable_sequential_cpu_offload(device=info["device"])
+            else:
+                pipe = pipe.to(info["device"])
+        except Exception as e:
+            print(f"[worker] DirectML offload ishlamadi ({e}), oddiy usulga o'tildi.")
+            pipe = pipe.to(info["device"])
     else:
         pipe = pipe.to(info["device"])
- 
+
     try:
         pipe.enable_attention_slicing()
         pipe.enable_vae_slicing()
     except Exception:
         pass
- 
+
     _pipe = pipe
     print("[worker] Tayyor.")
     return _pipe
- 
- 
+
+
 # ============================================================
 # 3-QISM: Video yaratish
 # ============================================================
 def run_job(job_id, image_b64):
     import torch
     from diffusers.utils import export_to_video
- 
+
     try:
         info = detect_device()
         tier = pick_tier(info)
         pipe = get_pipeline()
- 
+
         raw = base64.b64decode(image_b64.split(",", 1)[-1])
         image = Image.open(io.BytesIO(raw)).convert("RGB")
- 
+
         # Rasmni daraja o'lchamiga moslab, nisbatini buzmasdan kesamiz.
         target = tier["size"]
         w, h = image.size
@@ -204,10 +223,10 @@ def run_job(job_id, image_b64):
         left = (image.width - target) // 2
         top = (image.height - int(target * 9 / 16)) // 2
         image = image.crop((left, top, left + target, top + int(target * 9 / 16)))
- 
+
         with JOBS_LOCK:
             JOBS[job_id]["stage"] = f"Yaratilmoqda ({tier['name']} daraja)"
- 
+
         generator = torch.manual_seed(42)
         frames = pipe(
             image,
@@ -216,41 +235,45 @@ def run_job(job_id, image_b64):
             num_inference_steps=tier["steps"],
             generator=generator,
         ).frames[0]
- 
+
         out_dir = os.path.join(os.path.dirname(__file__), "output")
         os.makedirs(out_dir, exist_ok=True)
         out_path = os.path.join(out_dir, f"{job_id}.mp4")
         export_to_video(frames, out_path, fps=7)
- 
+
         with open(out_path, "rb") as f:
             video_b64 = base64.b64encode(f.read()).decode()
- 
+
         with JOBS_LOCK:
             JOBS[job_id].update(state="done", video=video_b64, stage="Tayyor")
- 
+
     except Exception as e:
+        msg = str(e)
         print(f"[worker] XATO: {e}")
+        if "allocate" in msg.lower() or "memory" in msg.lower():
+            msg = ("Videokartangizda xotira yetmadi. worker.py'ni FORCE_CPU_VIDEO=1 bilan "
+                   "ishga tushirib ko'ring (sekinroq, lekin ishonchli) yoki rasmni kichikroq qiling.")
         with JOBS_LOCK:
-            JOBS[job_id].update(state="error", message=str(e))
- 
- 
- 
+            JOBS[job_id].update(state="error", message=msg)
+
+
+
 _img_pipe = None
- 
- 
+
+
 def get_image_pipeline():
     """Rasm modeli (Stable Diffusion). Videodan yengil — 4GB kartada ham ishlaydi."""
     global _img_pipe
     if _img_pipe is not None:
         return _img_pipe
- 
+
     import torch
     from diffusers import StableDiffusionPipeline
- 
+
     info = detect_device()
     dtype = torch.float16 if info["fp16"] else torch.float32
     model_id = os.environ.get("IMAGE_MODEL", "stabilityai/sd-turbo")
- 
+
     print(f"[worker] Rasm modeli yuklanmoqda: {model_id} ...")
     pipe = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=dtype, safety_checker=None)
     pipe = pipe.to(info["device"])
@@ -259,54 +282,83 @@ def get_image_pipeline():
         pipe.enable_vae_slicing()
     except Exception:
         pass
- 
+
     _img_pipe = pipe
     print("[worker] Rasm modeli tayyor.")
     return _img_pipe
- 
- 
+
+
 def run_image_job(job_id, prompt):
     try:
         info = detect_device()
         tier = pick_image_tier(info)
         pipe = get_image_pipeline()
- 
+
         with JOBS_LOCK:
             JOBS[job_id]["stage"] = f"Chizilmoqda ({tier['name']})"
- 
+
         # sd-turbo 1-4 qadamda ishlaydi; oddiy SD uchun ko'proq qadam kerak.
         steps = 4 if "turbo" in os.environ.get("IMAGE_MODEL", "sd-turbo") else tier["steps"]
         guidance = 0.0 if "turbo" in os.environ.get("IMAGE_MODEL", "sd-turbo") else 7.5
- 
-        image = pipe(
-            prompt=prompt,
-            width=tier["size"],
-            height=tier["size"],
-            num_inference_steps=steps,
-            guidance_scale=guidance,
-        ).images[0]
- 
+
+        def _generate(p, size):
+            return p(
+                prompt=prompt,
+                width=size,
+                height=size,
+                num_inference_steps=steps,
+                guidance_scale=guidance,
+            ).images[0]
+
+        try:
+            image = _generate(pipe, tier["size"])
+        except Exception as gpu_err:
+            # Video xotira yetmasa — VA'DA QILINGANIDEK protsessorga o'tamiz.
+            # CPU sekinroq, lekin xotirasi ko'p, shuning uchun ishlaydi.
+            msg = str(gpu_err).lower()
+            if "memory" not in msg and "allocate" not in msg:
+                raise
+            print(f"[worker] Video xotira yetmadi -> protsessorga o'tilmoqda: {gpu_err}")
+            with JOBS_LOCK:
+                JOBS[job_id]["stage"] = "Video xotira yetmadi, protsessorda chizilmoqda (sekinroq)"
+
+            global _img_pipe
+            import torch as _t
+            from diffusers import StableDiffusionPipeline as _SDP
+            cpu_pipe = _SDP.from_pretrained(
+                os.environ.get("IMAGE_MODEL", "stabilityai/sd-turbo"),
+                torch_dtype=_t.float32,
+                safety_checker=None,
+            ).to("cpu")
+            try:
+                cpu_pipe.enable_attention_slicing()
+                cpu_pipe.enable_vae_slicing()
+            except Exception:
+                pass
+            _img_pipe = cpu_pipe          # keyingi so'rovlar ham CPU'da ishlasin
+            image = _generate(cpu_pipe, 384)
+
         buf = io.BytesIO()
         image.save(buf, format="PNG")
         img_b64 = base64.b64encode(buf.getvalue()).decode()
- 
+
         with JOBS_LOCK:
             JOBS[job_id].update(state="done", image=img_b64, stage="Tayyor")
- 
+
     except Exception as e:
         print(f"[worker] RASM XATO: {e}")
         with JOBS_LOCK:
             JOBS[job_id].update(state="error", message=str(e))
- 
- 
+
+
 # ============================================================
 # 4-QISM: HTTP interfeys
 # ============================================================
 class SubmitBody(BaseModel):
     image: str
     token: str = ""
- 
- 
+
+
 @app.get("/health")
 def health():
     info = detect_device()
@@ -320,23 +372,23 @@ def health():
         "frames": tier["frames"],
         "size": tier["size"],
     }
- 
- 
+
+
 @app.post("/submit")
 def submit(body: SubmitBody):
     if WORKER_TOKEN and body.token != WORKER_TOKEN:
         return {"error": "Ruxsat yo'q"}
     if not body.image:
         return {"error": "Rasm yuborilmadi"}
- 
+
     job_id = uuid.uuid4().hex
     with JOBS_LOCK:
         JOBS[job_id] = {"state": "pending", "stage": "Navbatda"}
- 
+
     threading.Thread(target=run_job, args=(job_id, body.image), daemon=True).start()
     return {"requestId": job_id}
- 
- 
+
+
 @app.get("/status/{job_id}")
 def status(job_id: str):
     with JOBS_LOCK:
@@ -348,27 +400,27 @@ def status(job_id: str):
     if job["state"] == "error":
         return {"state": "error", "message": job.get("message", "Xato")}
     return {"state": "pending", "message": job.get("stage", "")}
- 
- 
+
+
 class ImageBody(BaseModel):
     prompt: str
     token: str = ""
- 
- 
+
+
 @app.post("/image/submit")
 def image_submit(body: ImageBody):
     if WORKER_TOKEN and body.token != WORKER_TOKEN:
         return {"error": "Ruxsat yo'q"}
     if not body.prompt.strip():
         return {"error": "Tavsif yuborilmadi"}
- 
+
     job_id = uuid.uuid4().hex
     with JOBS_LOCK:
         JOBS[job_id] = {"state": "pending", "stage": "Navbatda"}
     threading.Thread(target=run_image_job, args=(job_id, body.prompt), daemon=True).start()
     return {"requestId": job_id}
- 
- 
+
+
 @app.get("/image/status/{job_id}")
 def image_status(job_id: str):
     with JOBS_LOCK:
@@ -380,11 +432,11 @@ def image_status(job_id: str):
     if job["state"] == "error":
         return {"state": "error", "message": job.get("message", "Xato")}
     return {"state": "pending", "message": job.get("stage", "")}
- 
- 
+
+
 if __name__ == "__main__":
     import uvicorn
- 
+
     info = detect_device()
     tier = pick_tier(info)
     print("=" * 60)
@@ -395,6 +447,5 @@ if __name__ == "__main__":
     elif info["vram_gb"] < 8:
         print("  OGOHLANTIRISH: video xotira kam — xato chiqsa, avtomatik CPU'ga o'tadi.")
     print("=" * 60)
- 
+
     uvicorn.run(app, host="0.0.0.0", port=8188)
- 

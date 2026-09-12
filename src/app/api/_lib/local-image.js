@@ -33,9 +33,12 @@ export async function generateImageViaLocal(prompt) {
     throw new Error(submitted?.error || 'Kompyuteringizdagi worker javob bermadi. U yoqilganmi?');
   }
  
-  // Vercel funksiyasi 60 soniyada uziladi — shuning uchun 50 soniyadan
-  // oshirmaymiz. Sekin uskunada bu yetmasligi mumkin, u holda aniq xabar beramiz.
-  const deadline = Date.now() + 50_000;
+  // Kutish muddati. Sekin uskunada (masalan RX 550) rasm 1-3 daqiqa oladi,
+  // shuning uchun sozlanadigan qilingan. Vercel'da 60 soniyalik cheklov bor,
+  // lekin O'Z KOMPYUTERINGIZDA (localhost) bunday cheklov yo'q — shuning
+  // uchun standart qiymat 5 daqiqa.
+  const waitMs = Number(process.env.LOCAL_IMAGE_TIMEOUT_MS || 300_000);
+  const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2000));
  
@@ -52,8 +55,8 @@ export async function generateImageViaLocal(prompt) {
   }
  
   throw new Error(
-    "Rasm 50 soniyada tayyor bo'lmadi — kompyuteringiz sekin ishlayapti. " +
-      "worker.py da IMAGE_MODEL ni 'stabilityai/sd-turbo' qilib, o'lchamni kichraytiring."
+    `Rasm ${Math.round(waitMs / 1000)} soniyada tayyor bo'lmadi. ` +
+      "Worker terminalini tekshiring: model hali yuklab olinayotgan bo'lishi mumkin."
   );
 }
  

@@ -1,23 +1,42 @@
-# ToshkentGPT lokal video worker uchun kerakli kutubxonalar.
+# ToshkentGPT lokal worker — kutubxonalar
 #
-# MUHIM — avval torch'ni O'ZINGIZGA MOS holda o'rnating:
+# ============================================================
+# NIMA UCHUN VERSIYALAR QAT'IY BELGILANGAN
+# ============================================================
+# torch-directml (AMD kartangiz uchun) majburan torch 2.4.1 ni o'rnatadi.
+# Eng yangi diffusers/transformers esa torch 2.5+ talab qiladi — natijada
+# kutubxonalar bir-birini tanimay, "Disabling PyTorch" xatosi chiqadi.
 #
-#   NVIDIA kartangiz bo'lsa (kelajakda RTX 5090):
-#     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+# Quyidagi versiyalar torch 2.4.1 bilan MOS (PyPI'dan tasdiqlangan:
+# diffusers 0.31.0 -> torch<2.5.0,>=1.4).
+# ============================================================
 #
-#   AMD karta, Windows (hozirgi RX 550):
-#     pip install torch torchvision
-#     pip install torch-directml
+# O'RNATISH TARTIBI (aynan shu ketma-ketlikda):
 #
-#   Hech qanday karta yo'q (faqat protsessor):
-#     pip install torch torchvision
+#   1) Avval eski kutubxonalarni tozalang:
+#      py -3.11 -m pip uninstall -y diffusers transformers huggingface_hub accelerate tokenizers numpy
 #
-# Keyin:  pip install -r requirements.txt
+#   2) torch + directml (AMD karta uchun):
+#      py -3.11 -m pip install torch==2.4.1 torchvision==0.19.1 torch-directml
+#
+#   3) Shu fayl:
+#      py -3.11 -m pip install -r requirements.txt
+#
+# Kelajakda NVIDIA (RTX 5090) olsangiz, 2-qadam o'rniga:
+#      py -3.11 -m pip uninstall -y torch-directml
+#      py -3.11 -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+#   va quyidagi qat'iy versiyalarni olib tashlab, eng yangisini o'rnatsangiz bo'ladi.
  
-diffusers>=0.31.0
-transformers>=4.44.0
-accelerate>=0.34.0
-safetensors>=0.4.5
+diffusers==0.31.0
+transformers==4.46.3
+huggingface_hub==0.26.2
+tokenizers==0.20.3
+accelerate==1.1.1
+safetensors==0.4.5
+ 
+# torch 2.4.1 numpy 2.x bilan to'liq sinalmagan — 1.x xavfsizroq.
+numpy<2
+ 
 pillow>=10.0.0
 imageio>=2.35.0
 imageio-ffmpeg>=0.5.1

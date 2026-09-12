@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { getUserState, resolveEffectivePlan, getUsageWindow, recordUsage, saveUserState } from '../_lib/user-plan';
-import { submitVideoJob, checkVideoJob } from '../_lib/ai-video';
+import { submitVideoJob, checkVideoJob } from '@/lib/ai-video';
  
 // Har bir video HAQIQIY pul turadi (~$0.30-0.50), shuning uchun bu funksiya
 // FAQAT pullik yuqori tariflarda ochiq — aks holda bepul foydalanuvchilar

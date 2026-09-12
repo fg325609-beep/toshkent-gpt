@@ -237,13 +237,21 @@ async function handleChatRequest(req) {
           let geminiErrorText = null;
  
           // 1-navbat: o'z kompyuteringizdagi worker (IMAGE_PROVIDER=local bo'lsa).
-          if (process.env.IMAGE_PROVIDER === 'local') {
+          // Qiymatni tozalab tekshiramiz — .env faylida ko'rinmas bo'sh joy yoki
+          // katta harf bo'lsa ham ishlashi uchun.
+          const imageProvider = (process.env.IMAGE_PROVIDER || '').trim().toLowerCase();
+          console.log('[RASM] IMAGE_PROVIDER =', JSON.stringify(process.env.IMAGE_PROVIDER), '-> tozalangan:', imageProvider);
+ 
+          if (imageProvider === 'local') {
             try {
+              send({ type: 'chunk', text: 'Kompyuteringizda chizilmoqda... 💻\n\n' });
               result = await generateImageViaLocal(englishPrompt);
             } catch (localError) {
               geminiErrorText = localError?.message || String(localError);
               console.error('[RASM] Lokal worker xatosi:', geminiErrorText);
             }
+          } else {
+            send({ type: 'chunk', text: `ℹ️ Lokal rejim o'chiq (IMAGE_PROVIDER = ${JSON.stringify(process.env.IMAGE_PROVIDER || 'yo\'q')}). .env.local ni tekshiring va serverni qayta ishga tushiring.\n\n` });
           }
  
           // 2-navbat: Gemini (Max/Pro Max uchun).
@@ -258,7 +266,7 @@ async function handleChatRequest(req) {
           }
           if (!result) {
             if (geminiErrorText) {
-              send({ type: 'chunk', text: `\n\n⚠️ Gemini: ${geminiErrorText}\nBepul model bilan chizyapman...\n\n` });
+              send({ type: 'chunk', text: `\n\n⚠️ ${geminiErrorText}\nBepul model bilan chizyapman...\n\n` });
             }
             result = await generateImageViaPollinations(englishPrompt);
           }

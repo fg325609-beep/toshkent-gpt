@@ -59,6 +59,10 @@ export const metadata = {
     index: true,
     follow: true,
   },
+    // Google Search Console tasdiqlash kodi.
+  verification: process.env.GOOGLE_SITE_VERIFICATION
+    ? { google: process.env.GOOGLE_SITE_VERIFICATION }
+    : undefined,
   alternates: {
     canonical: SITE_URL,
   },
@@ -129,6 +133,24 @@ export default function RootLayout({ children }) {
           dangerouslySetInnerHTML={{
             __html:
               "try{document.documentElement.setAttribute('data-theme', localStorage.getItem('tg-theme') || 'dark')}catch(e){}",
+          }}
+        />
+                <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebApplication",
+              name: SHORT_TITLE,
+              alternateName: ["Toshkent GPT", "ToshkentGPT AI"],
+              url: SITE_URL,
+              description: DESCRIPTION,
+              applicationCategory: "UtilitiesApplication",
+              operatingSystem: "Web, Android, iOS",
+              inLanguage: "uz",
+              author: { "@type": "Person", name: "Farhod Gʻofurov" },
+              offers: { "@type": "Offer", price: "0", priceCurrency: "UZS" },
+            }),
           }}
         />
         <AuthSessionProvider>{children}</AuthSessionProvider>

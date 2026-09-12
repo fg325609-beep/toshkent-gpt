@@ -101,6 +101,7 @@ export async function translatePromptToEnglish(ai, model, prompt) {
       model,
       contents:
         `Translate this image description into clear, vivid English for an AI image generator. ` +
+        `Add brief quality words (highly detailed, sharp focus, professional photography, 8k) at the end. ` +
         `Reply with ONLY the English description, nothing else:\n\n${prompt}`,
     });
     const out = (res?.text || res?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
@@ -114,7 +115,11 @@ export async function translatePromptToEnglish(ai, model, prompt) {
 /** Bepul rasm yaratish (Pollinations.ai) — API kalit kerak emas. */
 export async function generateImageViaPollinations(prompt) {
   // enhance=true o'chirildi: u tavsifni qayta yozib, natijani buzib yuborardi.
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true`;
+  // model=flux — standart modeldan ANCHA sifatliroq natija beradi.
+  // seed tasodifiy — aks holda bir xil tavsifga doim bir xil rasm qaytadi.
+  const seed = Math.floor(Math.random() * 1_000_000);
+  const model = process.env.POLLINATIONS_MODEL || 'flux';
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&model=${model}&seed=${seed}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
   if (!res.ok) {
     throw new Error(`Rasm yaratib bo'lmadi (server javobi: ${res.status}) — birozdan keyin qayta urinib ko'r.`);
