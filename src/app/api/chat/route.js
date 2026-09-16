@@ -251,22 +251,25 @@ async function handleChatRequest(req) {
               console.error('[RASM] Lokal worker xatosi:', geminiErrorText);
             }
           } else {
-            send({ type: 'chunk', text: `ℹ️ Lokal rejim o'chiq (IMAGE_PROVIDER = ${JSON.stringify(process.env.IMAGE_PROVIDER || 'yo\'q')}). .env.local ni tekshiring va serverni qayta ishga tushiring.\n\n` });
+            // Bu sozlama haqidagi ma'lumot FAQAT serverda qoladi — foydalanuvchiga
+            // texnik tafsilot ko'rsatilmaydi, u shunchaki rasmni kutadi.
+            console.log('[RASM] Lokal rejim o\'chiq — keyingi provayderga o\'tilyapti.');
           }
  
           // 2-navbat: Gemini (Max/Pro Max uchun).
           if (!result && isPremiumImagePlan) {
             try {
               result = await generateImageViaGemini(ai, englishPrompt);
-            } catch (geminiError) {
-              // Xatoni yashirmaymiz — sababi chatda ko'rinib tursin.
+           } catch (geminiError) {
+              // Xato matni faqat server loglariga yoziladi (Vercel → Logs).
               geminiErrorText = geminiError?.message || String(geminiError);
               console.error('[RASM] Gemini xatosi:', geminiErrorText);
             }
           }
           if (!result) {
             if (geminiErrorText) {
-              send({ type: 'chunk', text: `\n\n⚠️ ${geminiErrorText}\nBepul model bilan chizyapman...\n\n` });
+              // Foydalanuvchi texnik xatoni emas, oddiy tushunarli xabarni ko'radi.
+              send({ type: 'chunk', text: 'Biroz kuting, boshqa usul bilan chizyapman...\n\n' });
             }
             result = await generateImageViaPollinations(englishPrompt);
           }
@@ -279,9 +282,13 @@ async function handleChatRequest(req) {
             image: { dataUrl, mimeType: result.mimeType },
             plan: applyUsage(),
           });
-        } catch (error) {
+       } catch (error) {
+          // Haqiqiy sabab serverda qoladi, foydalanuvchi oddiy xabar oladi.
           console.error('Rasm yaratishda xato:', error);
-          send({ type: 'error', message: error.message || 'Rasm yaratishda xatolik yuz berdi.' });
+          send({
+            type: 'error',
+            message: "Rasm chizib bo'lmadi — birozdan keyin qayta urinib ko'ring.",
+          });
         } finally {
           controller.close();
         }
