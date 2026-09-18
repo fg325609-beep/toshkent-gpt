@@ -3,10 +3,10 @@
 /* ===== ToshkentGPT theme variables (dark/light) ===== */
 :root,
 [data-theme='dark'] {
-  --tg-bg: #0D0F14;
-  --tg-surface: #171A21;
-  --tg-surface-2: #14161C;
-  --tg-border: rgba(255, 255, 255, 0.1);
+   --tg-bg: #0A0A0B;
+  --tg-surface: #18181B;
+  --tg-surface-2: #121214;
+  --tg-border: rgba(255, 255, 255, 0.09);
   --tg-border-strong: rgba(255, 255, 255, 0.2);
   --tg-hover: rgba(255, 255, 255, 0.05);
   --tg-hover-strong: rgba(255, 255, 255, 0.1);
@@ -48,9 +48,8 @@ body {
    tekis bir rangdan chiroyliroq qiladi, lekin matn o'qilishiga xalaqit bermaydi. */
 .tg-ambient-bg {
   background:
-    radial-gradient(circle at 12% -8%, rgba(47, 158, 150, 0.20), transparent 42%),
-    radial-gradient(circle at 100% 6%, rgba(228, 169, 59, 0.16), transparent 38%),
-    radial-gradient(circle at 45% 115%, rgba(47, 158, 150, 0.12), transparent 48%);
+    radial-gradient(circle at 8% -10%, rgba(47, 158, 150, 0.06), transparent 34%),
+    radial-gradient(circle at 100% 2%, rgba(228, 169, 59, 0.05), transparent 30%);
   transition: background-color 0.2s ease;
 }
 

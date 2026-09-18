@@ -2,16 +2,11 @@
  
 import MessageBubble from './MessageBubble';
  
-const SUGGESTIONS = [
-  'Aka, ishlar qalay?',
-  '/qidir bugungi dollar kursi',
-  '/kod fibonachchi ketma-ketligini grafikda chiz',
-  '/rasm gitara chalayotgan mushuk',
-];
- 
 // ============================================================
-// O'rtadagi aylanadigan (scroll) xabarlar maydoni: barcha xabarlar +
-// birinchi suhbatda ko'rinadigan tayyor savol takliflari.
+// O'rtadagi aylanadigan (scroll) xabarlar maydoni.
+//
+// Suhbat boshlanmagan holatdagi ekran endi alohida StartScreen
+// komponentida — bu yer faqat xabarlarni chizadi.
 // ============================================================
 export default function ChatMessages({
   messages,
@@ -27,10 +22,8 @@ export default function ChatMessages({
   onRegenerate,
   onEdit,
   onRate,
-  onSuggestionClick,
   scrollAnchorRef,
 }) {
-  const showSuggestions = messages.length === 1;
   const lastMessageId = messages[messages.length - 1]?.id;
  
   // "Qayta generatsiya" faqat ENG OXIRGI AI javobida, "Tahrirlash" esa faqat
@@ -63,20 +56,6 @@ export default function ChatMessages({
             onRate={onRate}
           />
         ))}
- 
-        {showSuggestions && !isLoading && (
-          <div className="ml-11 flex flex-wrap gap-2">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                onClick={() => onSuggestionClick(s)}
-                className="rounded-full border border-[var(--tg-border)] bg-[var(--tg-hover)] px-3.5 py-2 text-left text-[13px] text-[var(--tg-text-1)] transition-colors hover:bg-[var(--tg-hover-strong)]"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
  
         <div ref={scrollAnchorRef} />
       </div>

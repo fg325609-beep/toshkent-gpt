@@ -1,61 +1,36 @@
 'use client';
  
-import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Menu, Plus, Settings, Sun, Moon, User } from 'lucide-react';
+import { Menu, PanelLeftOpen, Plus, User } from 'lucide-react';
  
-// Ochiq menyu tashqarisiga bosilganda uni yopadi. Avval bu "butun ekranni
-// qoplaydigan ko'rinmas parda" (fixed inset-0 overlay) orqali qilinardi, lekin
-// u ba'zan haqiqiy sichqoncha bosishini menyu ichidagi tugmalarga
-// yetkazmay, o'zi "yutib" yuborayotgan edi.
+// ============================================================
+// Yuqoridagi tor panel.
 //
-// MUHIM: bu yerda aynan 'click' hodisasi ishlatiladi, 'pointerdown' emas —
-// 'pointerdown' juda erta (sichqoncha tugmasi bosilgan zahoti) ishga
-// tushadi va menyuni ULGURMASDAN yopib qo'yishi mumkin edi, natijada
-// bosilgan tugmaning o'z vazifasi (mavzuni almashtirish, sahifaga o'tish)
-// hech qachon bajarilmay qolardi. 'click' esa bosib-qo'yib yuborish TO'LIQ
-// yakunlangandan keyin ishga tushadi — shu sabab avval ichkaridagi tugma
-// o'z ishini bajaradi, keyin kerak bo'lsa menyu yopiladi.
-function useCloseOnOutsideClick(open, onClose, ref) {
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) {
-        onClose?.();
-      }
-    }
-    document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-}
- 
-export default function Header({
-  user,
-  theme,
-  onToggleTheme,
-  navMenuOpen,
-  onToggleNavMenu,
-  onCloseNavMenu,
-  onOpenHistory,
-  onNewChat,
-}) {
-  const navMenuRef = useRef(null);
- 
-  useCloseOnOutsideClick(navMenuOpen, onCloseNavMenu, navMenuRef);
- 
+// Avval bu yerda tishli g'ildirak menyusi bor edi va mavzu almashtirish,
+// sozlamalar kabi narsalar shu menyu ICHIGA yashiringan edi. Endi ularning
+// hammasi chapdagi doimiy panelda ko'rinib turadi, shuning uchun header
+// soddalashtirildi: hamburger (faqat telefonda), logo, "Yangi suhbat" va
+// profil rasmi.
+// ============================================================
+export default function Header({ user, railOpen = true, onOpenHistory, onNewChat }) {
   return (
-    <header className="relative z-30 flex items-center justify-between border-b border-[var(--tg-border)] bg-[var(--tg-bg)]/90 px-4 py-3 backdrop-blur sm:px-6">
+    <header className="relative z-20 flex items-center justify-between border-b border-[var(--tg-border)] bg-[var(--tg-bg)]/80 px-4 py-3 backdrop-blur sm:px-6">
       <div className="flex items-center gap-2.5">
+        {/* Logo telefonda ko'rinmaydi (joy tor — hamburger va tugmalar bor),
+            sm va undan katta ekranlarda ko'rinadi. */}
+        {/* Katta ekranda yon panel doim turadi — hamburger faqat telefonda kerak. */}
         <button
           onClick={onOpenHistory}
-          title="Suhbatlar"
-          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--tg-border)] text-[var(--tg-text-2)] transition hover:border-[var(--tg-border-strong)] hover:bg-[var(--tg-hover)]"
+          title={railOpen ? 'Suhbatlar' : 'Panelni ochish'}
+          className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--tg-border)] text-[var(--tg-text-2)] transition hover:border-[var(--tg-border-strong)] hover:bg-[var(--tg-hover)] ${
+            railOpen ? 'lg:hidden' : ''
+          }`}
         >
-          <Menu size={17} />
+          <Menu size={17} className="lg:hidden" />
+          <PanelLeftOpen size={17} className="hidden lg:block" />
         </button>
  
-        <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center">
+        <div className="relative hidden h-10 w-10 flex-shrink-0 items-center justify-center sm:flex">
           <div
             className="tg-logo-ring absolute inset-0 rounded-full"
             style={{
@@ -67,6 +42,7 @@ export default function Header({
           <span className="tg-logo-pulse absolute inset-0 rounded-full border border-[#2F9E96]/50" />
           <img src="/icons/logo-header.png" alt="ToshkentGPT" className="relative h-8 w-8 rounded-full" />
         </div>
+ 
         <div className="min-w-0">
           <h1
             className="truncate text-[15px] font-extrabold tracking-tight sm:text-base"
@@ -96,45 +72,6 @@ export default function Header({
           <span className="hidden sm:inline">Yangi suhbat</span>
         </button>
  
-        {/* Sozlamalar Menyusi */}
-        <div className="relative" ref={navMenuRef}>
-          <button
-            onClick={onToggleNavMenu}
-            title="Sozlamalar"
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--tg-border)] text-[var(--tg-text-2)] transition hover:border-[var(--tg-border-strong)] hover:bg-[var(--tg-hover)]"
-          >
-            <Settings size={16} />
-          </button>
- 
-          {navMenuOpen && (
-            <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface)] p-1 shadow-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  onToggleTheme?.();
-                  onCloseNavMenu?.();
-                }}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--tg-text-2)] transition hover:bg-[var(--tg-hover)]"
-              >
-                {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-                {theme === 'dark' ? 'Yorugʻ rejim' : 'Qorongʻu rejim'}
-              </button>
- 
-              <div className="my-1 h-px bg-[var(--tg-border)]" />
- 
-              <Link
-                href="/sozlamalar"
-                onClick={onCloseNavMenu}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-medium text-[var(--tg-text-1)] transition hover:bg-[var(--tg-hover)]"
-              >
-                <Settings size={14} />
-                Barcha sozlamalar
-              </Link>
-            </div>
-          )}
-        </div>
- 
-        {/* Profil — to'g'ridan-to'g'ri Sozlamalar sahifasiga olib boradi */}
         <Link
           href="/sozlamalar"
           title="Sozlamalar va profil"
@@ -150,3 +87,4 @@ export default function Header({
     </header>
   );
 }
+ 

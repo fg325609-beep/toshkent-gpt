@@ -16,11 +16,11 @@ import { isPushSupported, subscribeToPush, getCurrentPushSubscription } from '@/
 import SignInScreen from '@/components/SignInScreen';
 import SplashScreen from '@/components/SplashScreen';
 import OnboardingFlow from '@/components/OnboardingFlow';
-import GirihPattern from '@/components/GirihPattern';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import ChatMessages from '@/components/ChatMessages';
 import ChatInput from '@/components/ChatInput';
+import StartScreen from '@/components/StartScreen';
 import PlansModal from '@/components/PlansModal';
 import WhatsNewModal from '@/components/WhatsNewModal';
 import { useTheme } from './use-theme';
@@ -88,7 +88,10 @@ function ToshkentGPT({ user }) {
   const [deepThink, setDeepThink] = useState(false);
   const [attachment, setAttachment] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [navMenuOpen, setNavMenuOpen] = useState(false);
+  // Katta ekrandagi doimiy yon panel ochiqmi? (Yopish tugmasi bilan boshqariladi.)
+  const [railOpen, setRailOpen] = useState(true);
+  // Boshlanish ekranidagi katta sarlavha — admin panelidan boshqariladi.
+  const [hero, setHero] = useState(null);
  
   // --- Ro'yxatdan o'tishdagi bosqichli tanishuv (ism-familiya so'rash) ---
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -215,6 +218,14 @@ function ToshkentGPT({ user }) {
       })
       .catch(() => {});
  
+    // Admin panelida yozilgan sarlavha (matn, rang, shrift).
+    fetch('/api/hero')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.text) setHero(data);
+      })
+      .catch(() => {});
+ 
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail]);
@@ -250,6 +261,18 @@ function ToshkentGPT({ user }) {
   useEffect(() => {
     scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [session.messages, isLoading]);
+ 
+  // Yon panelning ochiq/yopiqligi brauzerda eslab qolinadi.
+  useEffect(() => {
+    if (localStorage.getItem('tg-rail-open') === '0') setRailOpen(false);
+  }, []);
+ 
+  function toggleRail(next) {
+    setRailOpen(next);
+    try {
+      localStorage.setItem('tg-rail-open', next ? '1' : '0');
+    } catch {}
+  }
  
   useEffect(() => {
     const el = textareaRef.current;
@@ -562,6 +585,18 @@ function ToshkentGPT({ user }) {
     }
   }
  
+  // Buyruq tugmasi bosilganda: xabarni DARHOL yubormaymiz, faqat buyruqni
+  // yozish qatoriga qo'yib, kursorni oxiriga olib boramiz.
+  function handleCommandPick(prefix) {
+    setInput(prefix);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(prefix.length, prefix.length);
+    });
+  }
+ 
   function handleNewChat() {
     audioRef.current?.pause();
     setSpeakingId(null);
@@ -830,10 +865,45 @@ function ToshkentGPT({ user }) {
     setPaymentStatus('idle');
   }
  
+  // Suhbat hali boshlanmagan bo'lsa — yozish qatori ekran o'rtasida turadi.
+  const isStart = session.messages.length === 1 && !isLoading;
+  const wasStartRef = useRef(isStart);
+ 
+  // Birinchi xabar yuborilgach yozish qatori pastga ko'chadi — kursor unda qolsin.
+  useEffect(() => {
+    if (wasStartRef.current === isStart) return;
+    wasStartRef.current = isStart;
+    if (!isStart) textareaRef.current?.focus();
+  }, [isStart]);
+ 
+  // ChatInput ikki joyda (o'rtada va pastda) ishlatilgani uchun proplari bir marta yig'iladi.
+  const chatInputProps = {
+    planInfo,
+    attachment,
+    onRemoveAttachment: () => setAttachment(null),
+    fileInputRef,
+    onFilePicked: handleFilePicked,
+    textareaRef,
+    input,
+    onInputChange: setInput,
+    onKeyDown: handleKeyDown,
+    onPaste: handlePaste,
+    speechSupported,
+    listening,
+    transcribing,
+    onToggleListening: toggleListening,
+    isLoading,
+    onStop: stopGeneration,
+    onSend: () => handleSendText(),
+    deepThink,
+    onToggleDeepThink: () => setDeepThink((v) => !v),
+    onCommandPick: handleCommandPick,
+  };
+ 
   const sortedSessions = [...sessions].sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
  
   return (
-    <div className="relative flex h-dvh flex-col overflow-hidden bg-[var(--tg-bg)] text-[var(--tg-text-1)]">
+    <div className={`relative flex h-dvh flex-col overflow-hidden bg-[var(--tg-bg)] text-[var(--tg-text-1)] ${railOpen ? 'lg:pl-[272px]' : ''}`}>
       {showSplash && <SplashScreen />}
  
       {!showSplash && onboardingOpen && (
@@ -852,16 +922,14 @@ function ToshkentGPT({ user }) {
       )}
  
       <div className="tg-ambient-bg pointer-events-none fixed inset-0" />
-      <GirihPattern />
  
       <Header
         user={user}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-        navMenuOpen={navMenuOpen}
-        onToggleNavMenu={() => setNavMenuOpen((v) => !v)}
-        onCloseNavMenu={() => setNavMenuOpen(false)}
-        onOpenHistory={() => setHistoryOpen(true)}
+        railOpen={railOpen}
+        onOpenHistory={() => {
+          setHistoryOpen(true);
+          toggleRail(true);
+        }}
         onNewChat={handleNewChat}
       />
  
@@ -871,45 +939,37 @@ function ToshkentGPT({ user }) {
         </div>
       )}
  
-      <ChatMessages
-        messages={session.messages}
-        userImage={user?.image}
-        isLoading={isLoading}
-        copiedId={copiedId}
-        speakingId={speakingId}
-        ttsLoadingId={ttsLoadingId}
-        audioCache={audioCache}
-        onCopy={copyMessage}
-        onToggleSpeak={toggleSpeak}
-        onDownloadAudio={downloadAudio}
-        onRegenerate={regenerateMessage}
-        onEdit={startEditMessage}
-        onRate={rateMessage}
-        onSuggestionClick={(s) => handleSendText(s)}
-        scrollAnchorRef={scrollAnchorRef}
-      />
+      {isStart ? (
+        <StartScreen
+          hero={hero}
+          greeting={session.messages[0]?.content}
+          onCommandPick={handleCommandPick}
+          onSuggestionClick={(q) => handleSendText(q)}
+        >
+          <ChatInput {...chatInputProps} centered />
+        </StartScreen>
+      ) : (
+        <>
+          <ChatMessages
+            messages={session.messages}
+            userImage={user?.image}
+            isLoading={isLoading}
+            copiedId={copiedId}
+            speakingId={speakingId}
+            ttsLoadingId={ttsLoadingId}
+            audioCache={audioCache}
+            onCopy={copyMessage}
+            onToggleSpeak={toggleSpeak}
+            onDownloadAudio={downloadAudio}
+            onRegenerate={regenerateMessage}
+            onEdit={startEditMessage}
+            onRate={rateMessage}
+            scrollAnchorRef={scrollAnchorRef}
+          />
  
-      <ChatInput
-        planInfo={planInfo}
-        attachment={attachment}
-        onRemoveAttachment={() => setAttachment(null)}
-        fileInputRef={fileInputRef}
-        onFilePicked={handleFilePicked}
-        textareaRef={textareaRef}
-        input={input}
-        onInputChange={setInput}
-        onKeyDown={handleKeyDown}
-        onPaste={handlePaste}
-        speechSupported={speechSupported}
-        listening={listening}
-        transcribing={transcribing}
-        onToggleListening={toggleListening}
-        isLoading={isLoading}
-        onStop={stopGeneration}
-        onSend={() => handleSendText()}
-        deepThink={deepThink}
-        onToggleDeepThink={() => setDeepThink((v) => !v)}
-      />
+          <ChatInput {...chatInputProps} />
+        </>
+      )}
  
       <Sidebar
         open={historyOpen}
@@ -919,6 +979,14 @@ function ToshkentGPT({ user }) {
         onNewChat={handleNewChat}
         onOpenSession={openSession}
         onDeleteSession={deleteSession}
+        railOpen={railOpen}
+        onCollapse={() => toggleRail(false)}
+        onCommandPick={handleCommandPick}
+        chatStarted={!isStart}
+        planInfo={planInfo}
+        user={user}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
  
       <PlansModal

@@ -17,6 +17,8 @@ import {
   Ban,
   Bell,
   Send,
+  Type,
+  Save,
 } from 'lucide-react';
 import { formatRelative } from '@/lib/format';
 import { showToast } from '@/lib/toast';
@@ -74,6 +76,25 @@ function StatsChart({ data }) {
 //   3) YANGI: alohida parol (PIN) kiritish — sessiya davomida bir marta
 // Shundan keyingina "kimlar bor", "onlayn kim" kabi nozik ma'lumotlar ochiladi.
 // ============================================================
+// Sarlavha uchun tanlanadigan shriftlar (layout.jsx'dagi next/font o'zgaruvchilari).
+const HERO_FONTS = {
+  display: 'var(--font-display)',
+  sans: 'var(--font-geist-sans)',
+  mono: 'var(--font-geist-mono)',
+};
+ 
+const HERO_SIZES = [
+  { id: 'sm', label: 'Kichik' },
+  { id: 'md', label: 'Oʻrta' },
+  { id: 'lg', label: 'Katta' },
+];
+ 
+const HERO_FONT_OPTIONS = [
+  { id: 'display', label: 'Bricolage (qalin)' },
+  { id: 'sans', label: 'Geist (oddiy)' },
+  { id: 'mono', label: 'Geist Mono' },
+];
+ 
 export default function AdminPage() {
   const { status } = useSession();
  
@@ -231,6 +252,67 @@ function Dashboard() {
   }
  
   const [blockingEmail, setBlockingEmail] = useState(null);
+ 
+  // --- Boshlanish ekranidagi katta sarlavha ---
+  const [hero, setHero] = useState({
+    text: 'Xoʻsh, nimadan boshlaymiz?',
+    subtitle: '',
+    colorMode: 'gradient',
+    color: '#E4A93B',
+    gradientFrom: '#F3EEE2',
+    gradientTo: '#E4A93B',
+    font: 'display',
+    size: 'md',
+  });
+  const [heroSaving, setHeroSaving] = useState(false);
+ 
+  useEffect(() => {
+    fetch('/api/hero')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.text) setHero(data);
+      })
+      .catch(() => {});
+  }, []);
+ 
+  function setHeroField(key, value) {
+    setHero((prev) => ({ ...prev, [key]: value }));
+  }
+ 
+  async function saveHero() {
+    if (!hero.text.trim()) {
+      showToast('Sarlavha matnini kiriting.', 'error');
+      return;
+    }
+    setHeroSaving(true);
+    try {
+      const res = await fetch('/api/hero', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(hero),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Xatolik');
+      setHero(data.hero);
+      showToast('Saqlandi — bosh sahifada koʻrinadi.', 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setHeroSaving(false);
+    }
+  }
+ 
+  const heroPreviewStyle =
+    hero.colorMode === 'solid'
+      ? { color: hero.color, fontFamily: HERO_FONTS[hero.font] }
+      : {
+          backgroundImage: `linear-gradient(90deg, ${hero.gradientFrom}, ${hero.gradientTo})`,
+          WebkitBackgroundClip: 'text',
+          backgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          color: 'transparent',
+          fontFamily: HERO_FONTS[hero.font],
+        };
  
   const [broadcastTitle, setBroadcastTitle] = useState('ToshkentGPT');
   const [broadcastMessage, setBroadcastMessage] = useState('');
@@ -407,6 +489,137 @@ function Dashboard() {
             Yuborish
           </button>
         </div>
+ 
+        {/* --- Bosh sahifadagi katta sarlavha --- */}
+        <section className="rounded-xl border border-[var(--tg-border)] bg-[var(--tg-surface-2)] p-4">
+          <h2 className="mb-1 flex items-center gap-2 text-sm font-bold">
+            <Type size={15} /> Bosh sahifadagi sarlavha
+          </h2>
+          <p className="mb-3 text-[11px] text-[var(--tg-text-3)]">
+            Foydalanuvchi ilovani ochganda oʻrtada koʻrinadigan katta yozuv. Har kuni boshqa soʻz yozib qoʻysangiz boʻladi.
+          </p>
+ 
+          {/* Jonli koʻrinish */}
+          <div className="mb-4 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-4 py-6 text-center">
+            <p className="text-[26px] font-extrabold leading-tight" style={heroPreviewStyle}>
+              {hero.text || 'Sarlavha matni'}
+            </p>
+            {hero.subtitle && (
+              <p className="mt-2 text-xs text-[var(--tg-text-2)]">{hero.subtitle}</p>
+            )}
+          </div>
+ 
+          <label className="mb-1 block text-[11px] font-medium text-[var(--tg-text-2)]">Sarlavha matni</label>
+          <input
+            value={hero.text}
+            onChange={(e) => setHeroField('text', e.target.value)}
+            maxLength={120}
+            placeholder="Xoʻsh, nimadan boshlaymiz?"
+            className="mb-3 w-full rounded-lg border border-[var(--tg-border)] bg-[var(--tg-hover)] px-3 py-2 text-sm text-[var(--tg-text-1)] outline-none focus:border-[var(--tg-border-strong)]"
+          />
+ 
+          <label className="mb-1 block text-[11px] font-medium text-[var(--tg-text-2)]">
+            Ostidagi kichik yozuv <span className="text-[var(--tg-text-4)]">(boʻsh qoldirsangiz — odatdagi salomlashuv)</span>
+          </label>
+          <input
+            value={hero.subtitle}
+            onChange={(e) => setHeroField('subtitle', e.target.value)}
+            maxLength={200}
+            placeholder="Masalan: Bugun nimani bilmoqchisiz?"
+            className="mb-3 w-full rounded-lg border border-[var(--tg-border)] bg-[var(--tg-hover)] px-3 py-2 text-sm text-[var(--tg-text-1)] outline-none focus:border-[var(--tg-border-strong)]"
+          />
+ 
+          <div className="mb-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-[var(--tg-text-2)]">Shrift</label>
+              <select
+                value={hero.font}
+                onChange={(e) => setHeroField('font', e.target.value)}
+                className="w-full rounded-lg border border-[var(--tg-border)] bg-[var(--tg-hover)] px-3 py-2 text-sm text-[var(--tg-text-1)] outline-none"
+              >
+                {HERO_FONT_OPTIONS.map((f) => (
+                  <option key={f.id} value={f.id}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-[var(--tg-text-2)]">Oʻlcham</label>
+              <select
+                value={hero.size}
+                onChange={(e) => setHeroField('size', e.target.value)}
+                className="w-full rounded-lg border border-[var(--tg-border)] bg-[var(--tg-hover)] px-3 py-2 text-sm text-[var(--tg-text-1)] outline-none"
+              >
+                {HERO_SIZES.map((z) => (
+                  <option key={z.id} value={z.id}>{z.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+ 
+          <div className="mb-3 flex flex-wrap items-center gap-3">
+            <div className="flex rounded-lg border border-[var(--tg-border)] p-0.5">
+              {[
+                { id: 'gradient', label: 'Gradient' },
+                { id: 'solid', label: 'Bitta rang' },
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => setHeroField('colorMode', m.id)}
+                  className={`rounded-md px-2.5 py-1 text-[11px] transition ${
+                    hero.colorMode === m.id
+                      ? 'bg-[var(--tg-hover-strong)] text-[var(--tg-text-1)]'
+                      : 'text-[var(--tg-text-3)]'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+ 
+            {hero.colorMode === 'solid' ? (
+              <label className="flex items-center gap-2 text-[11px] text-[var(--tg-text-2)]">
+                Rang
+                <input
+                  type="color"
+                  value={hero.color}
+                  onChange={(e) => setHeroField('color', e.target.value)}
+                  className="h-7 w-10 cursor-pointer rounded border border-[var(--tg-border)] bg-transparent"
+                />
+              </label>
+            ) : (
+              <>
+                <label className="flex items-center gap-2 text-[11px] text-[var(--tg-text-2)]">
+                  Boshi
+                  <input
+                    type="color"
+                    value={hero.gradientFrom}
+                    onChange={(e) => setHeroField('gradientFrom', e.target.value)}
+                    className="h-7 w-10 cursor-pointer rounded border border-[var(--tg-border)] bg-transparent"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-[11px] text-[var(--tg-text-2)]">
+                  Oxiri
+                  <input
+                    type="color"
+                    value={hero.gradientTo}
+                    onChange={(e) => setHeroField('gradientTo', e.target.value)}
+                    className="h-7 w-10 cursor-pointer rounded border border-[var(--tg-border)] bg-transparent"
+                  />
+                </label>
+              </>
+            )}
+          </div>
+ 
+          <button
+            onClick={saveHero}
+            disabled={heroSaving}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-[#0D0F14] disabled:opacity-50"
+            style={{ background: 'linear-gradient(135deg, #E4A93B, #2F9E96)' }}
+          >
+            {heroSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+            Saqlash
+          </button>
+        </section>
  
         {/* --- Foydalanuvchilar jadvali --- */}
         <section>
