@@ -11,7 +11,7 @@ export const PLANS = {
     dailyLimit: 15,
     modelEnv: 'GEMINI_MODEL_LITE',
     paid: false,
-    features: ['Kuniga 15 xabargacha', 'Oddiy tezlikdagi javoblar', 'Suhbatlar tarixi saqlanadi', 'Rasm va fayl yuborish'],
+    features: [ 'Kuniga 15 xabargacha', 'Oddiy tezlikdagi javoblar', 'Suhbatlar tarixi saqlanadi', 'Rasm va fayl yuborish' ],
   },
   pro: {
     id: 'pro',
@@ -27,7 +27,7 @@ export const PLANS = {
       cooldownHours: 3, // ...dan keyin, shuncha soatdan so'ng qayta ochiladi
     },
     featuresIntro: "Lite'dagi hammasi, plyus:",
-    features: ['Kuniga 60 xabargacha', 'Tezroq va sifatliroq javoblar', 'Bepul sinov: har 3 soatda 10 ta xabar'],
+    features: [ 'Kuniga 60 xabargacha', 'Tezroq va sifatliroq javoblar', 'Bepul sinov: har 3 soatda 10 ta xabar' ],
   },
   max: {
     id: 'max',
@@ -39,7 +39,7 @@ export const PLANS = {
     modelEnv: 'GEMINI_MODEL_MAX',
     paid: true,
     featuresIntro: "Pro'dagi hammasi, plyus:",
-    features: ['Kuniga 200 xabargacha', 'Kuchliroq AI modeli', 'Ustuvor javob tezligi'],
+    features: [ 'Kuniga 200 xabargacha', 'Kuchliroq AI modeli', 'Ustuvor javob tezligi' ],
   },
   promax: {
     id: 'promax',
@@ -51,15 +51,15 @@ export const PLANS = {
     modelEnv: 'GEMINI_MODEL_PROMAX',
     paid: true,
     featuresIntro: "Max'dagi hammasi, plyus:",
-    features: ['Kuniga 1000 xabargacha', 'Deyarli cheksiz foydalanish', 'Eng kuchli model, eng tez javob'],
+    features: [ 'Kuniga 1000 xabargacha', 'Deyarli cheksiz foydalanish', 'Eng kuchli model, eng tez javob' ],
   },
 };
 
-export const PLAN_ORDER = ['lite', 'pro', 'max', 'promax'];
+export const PLAN_ORDER = [ 'lite', 'pro', 'max', 'promax' ];
 
 // To'lov qabul qilinadigan karta.
 export const PAYMENT_CARD = {
-  number: '7777 0106 4941 8220',
+  number: '4916 9907 0268 7820',
   holder: 'F. GOFUROV',
-  bank: 'Alif Karta',
+  bank: 'Visa',
 };
