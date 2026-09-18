@@ -21,6 +21,7 @@ import Sidebar from '@/components/Sidebar';
 import ChatMessages from '@/components/ChatMessages';
 import ChatInput from '@/components/ChatInput';
 import StartScreen from '@/components/StartScreen';
+import VoiceMode from '@/components/VoiceMode';
 import PlansModal from '@/components/PlansModal';
 import WhatsNewModal from '@/components/WhatsNewModal';
 import { useTheme } from './use-theme';
@@ -92,6 +93,8 @@ function ToshkentGPT({ user }) {
   const [railOpen, setRailOpen] = useState(true);
   // Boshlanish ekranidagi katta sarlavha — admin panelidan boshqariladi.
   const [hero, setHero] = useState(null);
+  // Jonli (onlayn) ovozli suhbat oynasi.
+  const [voiceOpen, setVoiceOpen] = useState(false);
  
   // --- Ro'yxatdan o'tishdagi bosqichli tanishuv (ism-familiya so'rash) ---
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -898,6 +901,7 @@ function ToshkentGPT({ user }) {
     deepThink,
     onToggleDeepThink: () => setDeepThink((v) => !v),
     onCommandPick: handleCommandPick,
+    onOpenVoice: () => setVoiceOpen(true),
   };
  
   const sortedSessions = [...sessions].sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
@@ -987,6 +991,22 @@ function ToshkentGPT({ user }) {
         user={user}
         theme={theme}
         onToggleTheme={toggleTheme}
+      />
+ 
+      {/* Jonli ovozli suhbat — butun ekranni egallaydi. */}
+      <VoiceMode
+        open={voiceOpen}
+        onClose={() => setVoiceOpen(false)}
+        onPlanUpdate={setPlanInfo}
+        onExchange={(userText, replyText) => {
+          // Ovozda gaplashilgani ham suhbat tarixida qolsin.
+          if (!userText && !replyText) return;
+          updateMessages((prev) => [
+            ...prev,
+            { id: crypto.randomUUID(), role: 'user', content: userText, time: new Date().toISOString(), voice: true },
+            { id: crypto.randomUUID(), role: 'assistant', content: replyText, time: new Date().toISOString(), voice: true },
+          ]);
+        }}
       />
  
       <PlansModal

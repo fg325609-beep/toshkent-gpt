@@ -40,14 +40,20 @@ function pcmBase64ToMp3Buffer(base64Pcm, sampleRate) {
   return Buffer.concat(chunks);
 }
  
+// Odatdagi ohang — chatdagi "ovozda eshitish" tugmasi shuni ishlatadi.
+export const DEFAULT_TTS_STYLE = "o'zbek tilida, samimiy Toshkent koʻcha shevasida, tabiiy va issiq ohangda, shoshilmasdan";
+ 
 /**
- * Berilgan matnni Toshkentcha (koʻcha) shevasida, doimiy ovozda ovozga
- * aylantiradi va MP3 formatida (base64) qaytaradi.
+ * Berilgan matnni ovozga aylantiradi va MP3 formatida (base64) qaytaradi.
+ *
+ * styleHint — ohangni boshqarish uchun (masalan jonli suhbatda foydalanuvchi
+ * siqilib turgan bo'lsa, sokin va mehribon ohangda o'qish uchun). Berilmasa
+ * odatdagi Toshkentcha ohang ishlatiladi.
  */
-export async function generateSpeechMp3(ai, text) {
+export async function generateSpeechMp3(ai, text, styleHint) {
   // Gemini TTS "boshqariladigan" (controllable) — ya'ni matnning o'zida
   // uslub/shevani ko'rsatish orqali ohangni yo'naltirish mumkin.
-  const styledPrompt = `Quyidagi matnni o'zbek tilida, samimiy Toshkent koʻcha shevasida, tabiiy va issiq ohangda, shoshilmasdan o'qib ber: ${text}`;
+  const styledPrompt = `Quyidagi matnni ${styleHint || DEFAULT_TTS_STYLE} o'qib ber: ${text}`;
  
   const result = await ai.models.generateContent({
     model: TTS_MODEL,

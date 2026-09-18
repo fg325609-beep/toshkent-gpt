@@ -2,7 +2,7 @@
  
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Paperclip, Mic, Square, Send, X, Film, FileText, Brain, Loader2, ChevronDown, Plus } from 'lucide-react';
+import { Paperclip, Mic, Square, Send, X, Film, FileText, Brain, Loader2, ChevronDown, Plus, AudioLines } from 'lucide-react';
 import { PLANS } from '@/app/plans';
 import { COMMANDS } from '@/lib/commands';
  
@@ -52,6 +52,7 @@ export default function ChatInput({
   deepThink,
   onToggleDeepThink,
   onCommandPick,
+  onOpenVoice,
   centered = false,
 }) {
   const canSend = Boolean(input.trim() || attachment);
@@ -256,6 +257,16 @@ export default function ChatInput({
                 )}
               </button>
             )}
+ 
+            {/* Jonli (onlayn) ovozli suhbat */}
+            <button
+              onClick={onOpenVoice}
+              title="Jonli suhbat — ovoz bilan gaplashish"
+              aria-label="Jonli suhbat"
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[#2F9E96] transition hover:bg-[var(--tg-hover)]"
+            >
+              <AudioLines size={17} />
+            </button>
  
             {isLoading ? (
               <button
