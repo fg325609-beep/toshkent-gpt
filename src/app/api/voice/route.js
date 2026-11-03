@@ -2,9 +2,10 @@ import { GoogleGenAI } from '@google/genai';
 import { auth } from '@/auth';
 import { getUserState, resolveEffectivePlan, getUsageWindow, recordUsage, saveUserState } from '../_lib/user-plan';
 import { getUserProfile } from '../_lib/user-profile';
-import { buildSystemInstruction } from '../_lib/ai-generation';
+import { buildSystemInstruction, withRetry, DEFAULT_MODEL } from '../_lib/ai-generation';
 import { generateSpeechMp3 } from '../_lib/tts';
 import { touchUser } from '../_lib/admin';
+import { recordEvent } from '../_lib/stats';
  
 // ============================================================
 // JONLI (ONLAYN) SUHBAT — ovozli rejim.
@@ -21,7 +22,7 @@ import { touchUser } from '../_lib/admin';
 // ============================================================
  
 const API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const MODEL = process.env.GEMINI_VOICE_MODEL || DEFAULT_MODEL;
  
 // Kayfiyat -> ovoz ohangi. Til nomi oldiga qo'shiladi.
 const MOOD_TONE = {
@@ -138,15 +139,20 @@ export async function POST(req) {
       parts: [{ inlineData: { mimeType, data: audioBase64 } }],
     });
  
-    const result = await ai.models.generateContent({
-      model: MODEL,
-      contents,
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        temperature: 0.8,
-      },
-    });
+    const startedAt = Date.now();
+    const result = await withRetry(
+      (model) =>
+        ai.models.generateContent({
+          model,
+          contents,
+          config: {
+            systemInstruction,
+            responseMimeType: 'application/json',
+            temperature: 0.8,
+          },
+        }),
+      { model: MODEL }
+    );
  
     const raw = (result?.text || result?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
  
@@ -200,9 +206,11 @@ export async function POST(req) {
       };
     }
  
+    recordEvent({ channel: 'voice', kind: 'chat', email, ok: true, ms: Date.now() - startedAt, model: MODEL });
     return Response.json({ transcript, reply, mood, lang, audio, plan: planPayload });
   } catch (err) {
     console.error('Jonli suhbat xatosi:', err);
+    recordEvent({ channel: 'voice', kind: 'chat', email, ok: false, model: MODEL, error: err?.message });
     return Response.json({ error: "Javob olib bo'lmadi — birozdan keyin qayta urinib ko'ring." }, { status: 500 });
   }
 }

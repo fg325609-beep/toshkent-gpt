@@ -41,6 +41,172 @@ Qoidalar: 6 dan 9 tagacha kontent slayd yarat (title slaydidan tashqari). Har bi
 // Foydalanuvchi haqida bilib olingan doimiy faktlarni yashirin belgi orqali
 // ajratib olish uchun format: [[ESLA: kalit=qiymat]]
 export const FACT_TAG_RE = /\[\[ESLA:\s*([^=\]]+)=([^\]]+)\]\]/gi;
+
+// Davom savollari (tugma sifatida chiqadi): [[TAKLIF: savol]]
+export const FOLLOWUP_TAG_RE = /\[\[TAKLIF:\s*([^\]]+)\]\]/gi;
+const FOLLOWUPS_MAX = 3;
+
+/** Javobdan davom-savol takliflarini ajratib oladi va matnni tozalaydi. */
+export function extractFollowups(rawText) {
+  const followups = [];
+  const re = new RegExp(FOLLOWUP_TAG_RE);
+  let match;
+  while ((match = re.exec(rawText)) !== null) {
+    const q = match[1].trim().replace(/\s+/g, ' ').slice(0, 120);
+    if (q && !followups.includes(q) && followups.length < FOLLOWUPS_MAX) followups.push(q);
+  }
+  const cleanText = rawText.replace(FOLLOWUP_TAG_RE, '').trim();
+  return { followups, cleanText };
+}
+
+/** ESLA + TAKLIF belgilarini bir yo'la ajratadi. */
+export function extractHiddenTags(rawText) {
+  const { facts, cleanText: afterFacts } = extractFacts(rawText || '');
+  const { followups, cleanText } = extractFollowups(afterFacts);
+  return { facts, followups, cleanText };
+}
+
+// ============================================================
+// Model va "o'ylash darajasi"ni tarifga qarab tanlash — veb-chat, Telegram
+// bot va ovozli rejim HAMMASI shu ikkita funksiyadan foydalanadi (ilgari
+// har birida alohida nusxasi bor edi).
+// ============================================================
+export const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+
+/** Har bir tarif uchun alohida model belgilanishi mumkin (masalan GEMINI_MODEL_MAX). */
+export function modelForPlan(plan) {
+  return (plan?.modelEnv && process.env[plan.modelEnv]) || DEFAULT_MODEL;
+}
+
+// ============================================================
+// XATOLARGA CHIDAMLILIK — Gemini vaqtincha javob bermasa (429 — band,
+// 500/503 — server, tarmoq uzilishi), bir necha marta kutib qayta urinamiz.
+// Model topilmasa (404 — masalan tarif uchun noto'g'ri nom yozilgan) —
+// standart modelga tushamiz. Shunda foydalanuvchi "xato" o'rniga javob oladi.
+// ============================================================
+const RETRYABLE_RE = /429|RESOURCE_EXHAUSTED|503|UNAVAILABLE|500|INTERNAL|502|504|DEADLINE|timeout|ECONNRESET|fetch failed|overloaded/i;
+const MODEL_NOT_FOUND_RE = /404|NOT_FOUND|not found|is not supported|does not exist/i;
+
+export function isRetryableError(err) {
+  return RETRYABLE_RE.test(String(err?.message || err?.status || err));
+}
+export function isModelNotFound(err) {
+  return MODEL_NOT_FOUND_RE.test(String(err?.message || err)) && /model/i.test(String(err?.message || err));
+}
+
+/**
+ * fn(model) ni ishga tushiradi; vaqtinchalik xatoda 2 marta (0.8s, 2s) qayta
+ * urinadi; model topilmasa DEFAULT_MODEL bilan bir marta urinadi.
+ */
+export async function withRetry(fn, { model, retries = 2, onRetry } = {}) {
+  let currentModel = model || DEFAULT_MODEL;
+  let attempt = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      return await fn(currentModel);
+    } catch (err) {
+      if (isModelNotFound(err) && currentModel !== DEFAULT_MODEL) {
+        console.warn(`[AI] "${currentModel}" topilmadi — "${DEFAULT_MODEL}" ga o'tilmoqda.`);
+        currentModel = DEFAULT_MODEL;
+        continue;
+      }
+      if (attempt < retries && isRetryableError(err)) {
+        attempt += 1;
+        const delay = attempt === 1 ? 800 : 2000;
+        console.warn(`[AI] vaqtinchalik xato (${attempt}/${retries}), ${delay}ms dan keyin qayta:`, err?.message || err);
+        onRetry?.(attempt);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/** Foydalanuvchiga ko'rsatiladigan tushunarli xato matni (texnik tafsilotsiz). */
+export function friendlyAiError(err) {
+  const m = String(err?.message || err || '');
+  if (/429|RESOURCE_EXHAUSTED|quota/i.test(m)) return "Hozir so'rovlar juda ko'p — bir daqiqadan keyin qayta urinib ko'ring.";
+  if (/SAFETY|blocked|PROHIBITED/i.test(m)) return "Bu so'rovga javob bera olmayman — boshqacha so'rab ko'ring.";
+  if (/503|UNAVAILABLE|overloaded|500|INTERNAL/i.test(m)) return "AI serveri vaqtincha band — birozdan keyin qayta urinib ko'ring.";
+  if (/timeout|DEADLINE|aborted/i.test(m)) return "Javob juda uzoq cho'zildi — qisqaroq so'rov yoki kichikroq fayl bilan urinib ko'ring.";
+  if (/API key|PERMISSION_DENIED|401|403/i.test(m)) return "Server sozlamasida xato (API kalit). Admin bilan bog'laning.";
+  return "Kechirasiz, xatolik yuz berdi — birozdan keyin qayta urinib ko'ring.";
+}
+
+// ============================================================
+// AVTOMATIK VOSITALAR — oddiy suhbatda ham model kerak bo'lganda o'zi
+// internetdan qidiradi (joriy ma'lumot, narx, yangilik) va havolani o'qiydi,
+// foydalanuvchi /qidir yozib o'tirmaydi. Qaysi tariflarda yoqilishi:
+// AUTO_TOOLS_PLANS (standart: pro,max,promax — Lite'da qidiruv xarajati yo'q).
+// ============================================================
+export function autoToolsForPlan(planId, settings) {
+  if (settings && settings.features && settings.features.autoTools === false) return undefined;
+  const plans = (process.env.AUTO_TOOLS_PLANS || 'pro,max,promax').split(',').map((x) => x.trim());
+  if (!plans.includes(planId)) return undefined;
+  return [{ type: 'google_search' }, { type: 'url_context' }];
+}
+
+// Qadam (step) turiga qarab foydalanuvchiga ko'rsatiladigan holat matni.
+export const STEP_STATUS_TEXT = {
+  google_search_call: 'Internetdan qidiryapman... 🔍',
+  url_context_call: "Havolani o'qiyapman... 🔗",
+  code_execution_call: 'Kod ishga tushiryapman... 💻',
+  thought: "Fikrlayapman...",
+};
+
+/**
+ * Lite tarifda TEZ javob ustuvor (kam "o'ylash"), yuqori tariflarda sifat
+ * ustuvor. deepThink=true bo'lsa, tarifdan qat'i nazar 'high'.
+ */
+export function thinkingLevelForPlan(planId, deepThink = false) {
+  if (deepThink) return 'high';
+  if (planId === 'lite') return 'low';
+  if (planId === 'pro') return 'medium';
+  return 'high'; // max, promax
+}
+
+// ============================================================
+// Profil kalitlari ichida AI'ga "fakt" sifatida ko'rsatilmaydigan texnik
+// maydonlar (onboarded, til, updatedAt va h.k.). Ular ilgari tizim
+// ko'rsatmasiga "onboarded=true" ko'rinishida tushib qolar edi.
+// ============================================================
+const PROFILE_SYSTEM_KEYS = new Set(['onboarded', 'til', 'updatedAt', 'mutaxassislik', 'familiya']);
+
+// AI o'zi yozadigan faktlar uchun chegaralar — suhbat orqali profilni
+// cheksiz "to'ldirib" yuborish yoki tizim maydonlarini (masalan
+// mutaxassislik) ustidan yozish mumkin bo'lmasin.
+const FACT_KEY_MAX = 40;
+const FACT_VALUE_MAX = 200;
+const FACTS_PER_REPLY_MAX = 8;
+
+/** Toshkent vaqti bo'yicha hozirgi sana va vaqtni o'zbekcha satr qilib beradi. */
+export function tashkentNowLine(date = new Date()) {
+  const WEEKDAYS = ['yakshanba', 'dushanba', 'seshanba', 'chorshanba', 'payshanba', 'juma', 'shanba'];
+  const MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
+  try {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Tashkent',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        weekday: 'short',
+        hour12: false,
+      })
+        .formatToParts(date)
+        .map((p) => [p.type, p.value])
+    );
+    const weekdayIdx = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday);
+    const hour = String(parts.hour === '24' ? '00' : parts.hour).padStart(2, '0');
+    return `${parts.day}-${MONTHS[Number(parts.month) - 1]} ${parts.year}, ${WEEKDAYS[weekdayIdx] || ''}, soat ${hour}:${parts.minute} (Toshkent vaqti)`;
+  } catch {
+    return date.toISOString();
+  }
+}
  
 const LANGUAGE_INSTRUCTIONS = {
   ru: "\n\nMUHIM — TIL: Foydalanuvchi rus tilida javob olishni tanlagan. Barcha javoblaringni albatta RUS TILIDA yoz (o'zbekcha emas), lekin ToshkentGPT xarakteringni (samimiy, hazil-mutoyiba, do'stona ohang) saqlab qol.",
@@ -52,13 +218,22 @@ const AUTO_LANGUAGE_INSTRUCTION =
 export function buildSystemInstruction(profile, language) {
   // "mutaxassislik" oddiy fakt emas, balki obyekt (soha + bilim) — shuning
   // uchun umumiy "ma'lum faktlar" qatoridan alohida ajratiladi, aks holda
-  // u yerda "[object Object]" bo'lib chiqib qolardi.
-  const entries = Object.entries(profile || {}).filter(([k, v]) => k !== 'mutaxassislik' && v);
+  // u yerda "[object Object]" bo'lib chiqib qolardi. Texnik maydonlar
+  // (onboarded, til) ham chiqarib tashlanadi — ular AI uchun fakt emas.
+  const entries = Object.entries(profile || {}).filter(
+    ([k, v]) => !PROFILE_SYSTEM_KEYS.has(k) && v && typeof v !== 'object'
+  );
   const knownLine = entries.length
-    ? `\n\nFoydalanuvchi haqida oldindan ma'lum faktlar: ${entries.map(([k, v]) => `${k}=${v}`).join(', ')}. Mos kelganda shulardan tabiiy foydalan (masalan ismi bilan chaqirish), lekin har gal takrorlab o'tirma.`
+    ? `\n\nFoydalanuvchi haqida oldindan ma'lum faktlar: ${entries.map(([k, v]) => `${k}=${String(v).slice(0, FACT_VALUE_MAX)}`).join(', ')}. Mos kelganda shulardan tabiiy foydalan (masalan ismi bilan chaqirish), lekin har gal takrorlab o'tirma.`
     : '';
+
+  // Model o'zi "bugun qaysi kun" ekanini bilmaydi — sana/vaqt so'ralganda
+  // yoki "ertaga", "shu hafta" kabi gaplarda adashmasligi uchun beramiz.
+  const dateLine = `\n\nHozirgi sana va vaqt: ${tashkentNowLine()}. Foydalanuvchi O'zbekistonda deb hisobla (vaqt mintaqasi Asia/Tashkent, UTC+5).`;
  
-  const captureInstruction = `\n\nAgar foydalanuvchi shu xabarida ismini yoki boshqa doimiy shaxsiy ma'lumotini (masalan: ism, yashash joyi, kasbi, yoshi, yoqtirgan narsasi) birinchi marta aytsa, javobingning ENG OXIRIGA, alohida qatorda, aynan shu formatda yashirin belgi qo'sh: [[ESLA: kalit=qiymat]] — masalan [[ESLA: ism=Ali]]. Bir nechta fakt bo'lsa, har birini alohida qatorga yoz. Agar hech qanday yangi shaxsiy fakt aytilmagan bo'lsa yoki u allaqachon ma'lum bo'lsa, bunday qator umuman qo'shma. Bu qatorlar foydalanuvchiga hech qachon ko'rsatilmaydi.`;
+  const captureInstruction = `\n\nAgar foydalanuvchi shu xabarida ismini yoki boshqa doimiy shaxsiy ma'lumotini (masalan: ism, yashash joyi, kasbi, yoshi, yoqtirgan narsasi) birinchi marta aytsa, javobingning ENG OXIRIGA, alohida qatorda, aynan shu formatda yashirin belgi qo'sh: [[ESLA: kalit=qiymat]] — masalan [[ESLA: ism=Ali]]. Bir nechta fakt bo'lsa, har birini alohida qatorga yoz. Agar hech qanday yangi shaxsiy fakt aytilmagan bo'lsa yoki u allaqachon ma'lum bo'lsa, bunday qator umuman qo'shma. Bu qatorlar foydalanuvchiga hech qachon ko'rsatilmaydi.
+
+Javobing oxirida (ESLA qatorlaridan keyin) foydalanuvchi keyin so'rashi mumkin bo'lgan 2-3 ta QISQA (6-9 so'z) davom savolini shu formatda yoz: [[TAKLIF: savol matni]] — har biri alohida qatorda, foydalanuvchi tilida, uning nomidan ("Menga ... tushuntir" kabi). Juda qisqa javoblarda (salomlashuv, "rahmat") taklif yozma. Bu qatorlar ham foydalanuvchiga ko'rsatilmaydi — ular tugma sifatida chiqadi.`;
  
   const languageInstruction = LANGUAGE_INSTRUCTIONS[language] || AUTO_LANGUAGE_INSTRUCTION;
  
@@ -69,7 +244,7 @@ export function buildSystemInstruction(profile, language) {
     ? `\n\nMUHIM — SOHAVIY BILIM: Foydalanuvchi "${expertise.soha}" sohasida ishlaydi va sen shu soha bo'yicha maxsus tayyorlangansan. Quyidagi yo'riqnomaga asoslanib, unga o'z sohasida (hujjat tahlili, maslahat, atamalar va h.k.) yordam ber:\n${expertise.bilim}`
     : '';
  
-  return `${BASE_STYLE}${knownLine}${captureInstruction}${languageInstruction}${expertiseInstruction}`;
+  return `${BASE_STYLE}${dateLine}${knownLine}${captureInstruction}${languageInstruction}${expertiseInstruction}`;
 }
  
 export function extractFacts(rawText) {
@@ -77,12 +252,78 @@ export function extractFacts(rawText) {
   const re = new RegExp(FACT_TAG_RE);
   let match;
   while ((match = re.exec(rawText)) !== null) {
-    const key = match[1].trim();
-    const value = match[2].trim();
-    if (key && value) facts[key] = value;
+    const key = match[1].trim().slice(0, FACT_KEY_MAX);
+    const value = match[2].trim().slice(0, FACT_VALUE_MAX);
+    // Tizim maydonlarini AI o'zgartira olmaydi; bitta javobda juda ko'p
+    // "fakt" ham qabul qilinmaydi (prompt injection'dan himoya).
+    if (!key || !value || PROFILE_SYSTEM_KEYS.has(key)) continue;
+    if (Object.keys(facts).length >= FACTS_PER_REPLY_MAX) break;
+    facts[key] = value;
   }
   const cleanText = rawText.replace(FACT_TAG_RE, '').trim();
   return { facts, cleanText };
+}
+
+// ============================================================
+// Hujjat matnini (PDF/DOCX/XLSX) foydalanuvchi xabariga qo'shish — veb-chat
+// va Telegram bir xil formatda yuboradi.
+// ============================================================
+export const DOCUMENT_TEXT_MAX = 12000;
+
+/** Faqat hujjat bo'lagining o'zi (foydalanuvchi matnisiz). */
+export function documentSection(docName, extractedText) {
+  const body = (extractedText || '').trim();
+  const name = docName || 'fayl';
+  if (!body) {
+    return `\n\n(Foydalanuvchi "${name}" nomli fayl yubordi, lekin undan matn chiqarib bo'lmadi — fayl bo'sh, skanerlangan rasm yoki parol bilan himoyalangan bo'lishi mumkin.)`;
+  }
+  return `\n\n[Fayl: ${name}]\n${body.slice(0, DOCUMENT_TEXT_MAX)}`;
+}
+
+export function appendDocumentText(text, docName, extractedText) {
+  const section = documentSection(docName, extractedText);
+  const base = text || ((extractedText || '').trim() ? 'Bu fayldagi mazmunni tushuntirib ber.' : '');
+  return `${base}${section}`;
+}
+
+// ============================================================
+// RASM CHIZISH — bitta umumiy kirish nuqtasi. Veb-chat va Telegram bot
+// ikkalasi ham shuni chaqiradi, shunda tarjima qilish va provayderlar
+// tartibi (lokal worker -> Gemini -> Pollinations) ikkalasida BIR XIL.
+// Ilgari Telegram'da tavsif inglizchaga o'girilmas va lokal worker
+// e'tiborga olinmas edi.
+//
+//   onProgress(matn) — jarayon haqida foydalanuvchiga qisqa xabar (ixtiyoriy).
+// ============================================================
+export async function generateImage(ai, { prompt, model, premium = false, onProgress, localProvider }) {
+  const englishPrompt = await translatePromptToEnglish(ai, model || DEFAULT_MODEL, prompt);
+
+  let result = null;
+  const imageProvider = (process.env.IMAGE_PROVIDER || '').trim().toLowerCase();
+
+  // 1-navbat: o'z kompyuteringizdagi worker (IMAGE_PROVIDER=local bo'lsa).
+  if (imageProvider === 'local' && typeof localProvider === 'function') {
+    try {
+      onProgress?.('Kompyuteringizda chizilmoqda... 💻');
+      result = await localProvider(englishPrompt);
+    } catch (err) {
+      console.error('[RASM] Lokal worker xatosi:', err?.message || err);
+    }
+  }
+
+  // 2-navbat: Gemini (faqat pullik yuqori tariflar uchun — bizga xarajat qiladi).
+  if (!result && premium) {
+    try {
+      result = await generateImageViaGemini(ai, englishPrompt);
+    } catch (err) {
+      console.error('[RASM] Gemini xatosi:', err?.message || err);
+      onProgress?.('Biroz kuting, boshqa usul bilan chizyapman...');
+    }
+  }
+
+  // 3-navbat: bepul Pollinations.
+  if (!result) result = await generateImageViaPollinations(englishPrompt);
+  return result;
 }
  
 /**

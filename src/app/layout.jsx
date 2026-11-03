@@ -24,7 +24,7 @@ const SITE_URL = "https://toshkentgpt.uz";
 const TITLE = "ToshkentGPT — koʻcha tilida gaplashuvchi AI";
 const SHORT_TITLE = "ToshkentGPT";
 const DESCRIPTION =
-  "Toshkentcha uslubda, samimiy va hazilkash gaplashadigan AI yordamchi. Telefonga ilova sifatida ham o'rnatiladi.";
+  "Oʻzbek tilida, Toshkentcha samimiy uslubda gaplashadigan sunʼiy intellekt: savol-javob, rasm chizish, kod, video va hujjat tahlili, podkastdan klip, ovozli suhbat. Veb, Telegram va telefon ilovasi.";
 const KEYWORDS = [
   "ToshkentGPT",
   "AI yordamchi",
@@ -34,6 +34,10 @@ const KEYWORDS = [
   "Toshkent",
   "chatbot",
   "AI Uzbekistan",
+  "ToshkentGPT nima",
+  "o'zbekcha AI",
+  "podkastdan klip",
+  "video tahlil AI",
 ];
  
 // To'liq meta-ma'lumotlar: qidiruv tizimlari (SEO) va ijtimoiy tarmoqlarda
@@ -81,19 +85,13 @@ export const metadata = {
   },
   // Silka (link) birov bilan ulashilganda Telegram/WhatsApp/Instagram va h.k.
   // ichida chiqadigan sarlavha, tavsif va rasm — shu yerdan olinadi.
+  // Rasm (1200×630) src/app/opengraph-image.jsx orqali dinamik chiziladi —
+  // Next uni har bir sahifaning og:image / twitter:image'iga o'zi qo'shadi.
   openGraph: {
     title: TITLE,
     description: DESCRIPTION,
     url: SITE_URL,
     siteName: SHORT_TITLE,
-    images: [
-      {
-        url: "/og-image.png",
-        width: 1200,
-        height: 630,
-        alt: SHORT_TITLE,
-      },
-    ],
     locale: "uz_UZ",
     type: "website",
   },
@@ -101,7 +99,12 @@ export const metadata = {
     card: "summary_large_image",
     title: TITLE,
     description: DESCRIPTION,
-    images: ["/og-image.png"],
+    creator: "@toshkentgpt",
+  },
+  other: {
+    // Telegram "instant view" va ba'zi messenjerlar uchun qo'shimcha
+    "telegram:channel": "@toshkentgpt",
+    "og:image:alt": TITLE,
   },
 };
  

@@ -1,3 +1,8 @@
+import { defineConfig, globalIgnores } from 'eslint/config';
+import nextVitals from 'eslint-config-next/core-web-vitals';
+
+// `npm run lint` ilgari "defineConfig is not defined" xatosi bilan to'xtab
+// qolar edi — import'lar va `export default` tushib qolgan ekan. Endi tuzatildi.
 const eslintConfig = defineConfig([
   ...nextVitals,
   {
@@ -10,10 +15,7 @@ const eslintConfig = defineConfig([
     },
   },
   // Override default ignores of eslint-config-next.
-  globalIgnores([
-    ".next/**",
-    "out/**",
-    "build/**",
-    "next-env.d.ts",
-  ]),
+  globalIgnores(['.next/**', 'out/**', 'build/**', 'next-env.d.ts', 'local-worker/**']),
 ]);
+
+export default eslintConfig;

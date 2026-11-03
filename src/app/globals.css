@@ -17,6 +17,11 @@
   --tg-text-4: #6B7280;
   --tg-logo-grad-start: #F3EEE2;
   --tg-logo-grad-end: #E4A93B;
+  --tg-gold: #E4A93B;
+  --tg-teal: #2F9E96;
+  --tg-code-bg: #0E0F13;
+  --tg-shadow-md: 0 8px 30px rgba(0, 0, 0, 0.35);
+  --tg-shadow-lg: 0 18px 60px rgba(0, 0, 0, 0.5);
 }
 
 [data-theme='light'] {
@@ -36,6 +41,11 @@
      ko'rinmas edi (oq fonda oq-krem) — endi to'q rangdan boshlanadi. */
   --tg-logo-grad-start: #3A2E14;
   --tg-logo-grad-end: #C98A1F;
+  --tg-gold: #C98A1F;
+  --tg-teal: #1F857E;
+  --tg-code-bg: #FBFAF6;
+  --tg-shadow-md: 0 8px 30px rgba(20, 22, 28, 0.08);
+  --tg-shadow-lg: 0 18px 60px rgba(20, 22, 28, 0.14);
 }
 
 body {
@@ -130,6 +140,339 @@ body {
   .tg-splash-overlay,
   .tg-sidebar-in,
   .tg-pop-in {
+    animation: none !important;
+  }
+}
+
+
+/* ===================================================================
+   v2.3 — zamonaviy interfeys: tugmalar, animatsiyalar, kod ranglari
+   =================================================================== */
+
+/* Dumaloq ikonka-tugma (yozish qatori, panel) */
+.tg-iconbtn {
+  display: flex;
+  height: 2rem;
+  width: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: var(--tg-text-2);
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+.tg-iconbtn:hover {
+  background: var(--tg-hover);
+  color: var(--tg-text-1);
+}
+.tg-iconbtn:active {
+  transform: scale(0.94);
+}
+
+/* Xabar ostidagi kichik amal tugmalari */
+.tg-actionbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 0.3rem;
+  border-radius: 0.5rem;
+  color: var(--tg-text-3);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.tg-actionbtn:hover {
+  background: var(--tg-hover);
+  color: var(--tg-text-1);
+}
+
+/* Yuborish tugmasi / asosiy tugma — brend gradienti */
+.tg-sendbtn {
+  background: linear-gradient(135deg, var(--tg-gold), var(--tg-teal));
+  box-shadow: 0 4px 14px rgba(228, 169, 59, 0.25);
+}
+.tg-sendbtn:not(:disabled):hover {
+  filter: brightness(1.06);
+}
+.tg-sendbtn:disabled {
+  box-shadow: none;
+}
+
+/* Yozish qatori fokusda — ingichka gradient chegara */
+.tg-composer {
+  position: relative;
+}
+.tg-composer:focus-within {
+  border-color: rgba(228, 169, 59, 0.45);
+  box-shadow: var(--tg-shadow-md), 0 0 0 3px rgba(228, 169, 59, 0.08);
+}
+
+/* Mikrofon yozayotganda — pulsatsiya */
+@keyframes tg-rec {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+.tg-recording {
+  animation: tg-rec 1.2s ease-out infinite;
+}
+
+/* Xabar paydo bo'lishi */
+@keyframes tg-msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.tg-msg-in {
+  animation: tg-msg-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes tg-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.tg-fade-in {
+  animation: tg-fade-in 0.25s ease both;
+}
+
+@keyframes tg-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.tg-rise {
+  animation: tg-rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* AI yozayotganda matn oxiridagi kursor */
+@keyframes tg-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+.tg-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: var(--tg-gold);
+  animation: tg-blink 0.9s steps(1) infinite;
+}
+
+/* "O'ylayapman..." — yaltiroq matn */
+@keyframes tg-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.tg-shimmer-text {
+  background: linear-gradient(90deg, var(--tg-text-3) 0%, var(--tg-text-1) 50%, var(--tg-text-3) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: tg-shimmer 1.6s linear infinite;
+}
+
+/* Logotip "nafas olishi" — javob kutilayotganda */
+@keyframes tg-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+.tg-breathe {
+  animation: tg-breathe 1.4s ease-in-out infinite;
+}
+
+/* Kartalar (boshlanish ekrani) */
+.tg-card {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
+}
+
+/* Fayl tashlash qatlami */
+.tg-dropzone {
+  background: rgba(10, 10, 11, 0.72);
+  backdrop-filter: blur(6px);
+}
+[data-theme='light'] .tg-dropzone {
+  background: rgba(247, 245, 239, 0.8);
+}
+
+/* AI matni (prose) — jadval, kod va h.k. ichida bo'sh joylar */
+.tg-prose pre code {
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre;
+}
+.tg-prose p:last-child {
+  margin-bottom: 0;
+}
+
+/* ===== highlight.js ranglari — ToshkentGPT palitrasi (dark) ===== */
+.hljs {
+  color: var(--tg-text-1);
+  background: transparent;
+}
+.hljs-comment, .hljs-quote { color: #7C8594; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-subst, .hljs-meta { color: #C792EA; }
+.hljs-number, .hljs-literal, .hljs-variable, .hljs-template-variable, .hljs-tag .hljs-attr { color: #F2A365; }
+.hljs-string, .hljs-doctag, .hljs-regexp, .hljs-addition { color: #9ECE6A; }
+.hljs-title, .hljs-section, .hljs-selector-id, .hljs-function .hljs-title, .hljs-title.function_ { color: #E4A93B; }
+.hljs-type, .hljs-class .hljs-title, .hljs-title.class_, .hljs-built_in { color: #5AC8C0; }
+.hljs-attr, .hljs-attribute, .hljs-name, .hljs-selector-attr, .hljs-selector-pseudo, .hljs-selector-class { color: #82AAFF; }
+.hljs-symbol, .hljs-bullet, .hljs-link, .hljs-params { color: #D1D5DB; }
+.hljs-deletion { color: #F87171; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
+
+/* ===== highlight.js ranglari (light) ===== */
+[data-theme='light'] .hljs-comment, [data-theme='light'] .hljs-quote { color: #8A919E; }
+[data-theme='light'] .hljs-keyword, [data-theme='light'] .hljs-selector-tag, [data-theme='light'] .hljs-subst, [data-theme='light'] .hljs-meta { color: #8250DF; }
+[data-theme='light'] .hljs-number, [data-theme='light'] .hljs-literal, [data-theme='light'] .hljs-variable, [data-theme='light'] .hljs-template-variable { color: #B45309; }
+[data-theme='light'] .hljs-string, [data-theme='light'] .hljs-doctag, [data-theme='light'] .hljs-regexp, [data-theme='light'] .hljs-addition { color: #15803D; }
+[data-theme='light'] .hljs-title, [data-theme='light'] .hljs-section, [data-theme='light'] .hljs-selector-id, [data-theme='light'] .hljs-title.function_ { color: #B7791F; }
+[data-theme='light'] .hljs-type, [data-theme='light'] .hljs-title.class_, [data-theme='light'] .hljs-built_in { color: #0F766E; }
+[data-theme='light'] .hljs-attr, [data-theme='light'] .hljs-attribute, [data-theme='light'] .hljs-name, [data-theme='light'] .hljs-selector-class { color: #1D4ED8; }
+[data-theme='light'] .hljs-symbol, [data-theme='light'] .hljs-bullet, [data-theme='light'] .hljs-link, [data-theme='light'] .hljs-params { color: #3F4550; }
+
+[data-theme='light'] .tg-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-msg-in, .tg-fade-in, .tg-rise, .tg-caret, .tg-shimmer-text, .tg-breathe, .tg-recording {
+    animation: none !important;
+  }
+}
+
+/* ===================================================================
+   HARAKATLANUVCHI LOGOTIP (BrandMark) — halqa, orbita, nur, puls
+   =================================================================== */
+.tg-brand-ring {
+  background: conic-gradient(from 0deg, var(--tg-teal), var(--tg-gold), #F3EEE2, var(--tg-teal));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  animation: tg-spin 9s linear infinite;
+}
+.tg-brand-thinking .tg-brand-ring {
+  animation-duration: 2.2s;
+}
+.tg-brand-orbit {
+  animation: tg-spin 14s linear infinite reverse;
+}
+.tg-brand-thinking .tg-brand-orbit {
+  animation-duration: 3.5s;
+}
+.tg-brand-dot {
+  position: absolute;
+  width: 14%;
+  height: 14%;
+  border-radius: 9999px;
+}
+.tg-brand-dot-gold {
+  top: -4%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--tg-gold);
+  box-shadow: 0 0 10px rgba(228, 169, 59, 0.8);
+}
+.tg-brand-dot-teal {
+  bottom: -4%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 10%;
+  height: 10%;
+  background: var(--tg-teal);
+  box-shadow: 0 0 10px rgba(47, 158, 150, 0.8);
+}
+@keyframes tg-glow {
+  0%, 100% { opacity: 0.35; transform: scale(0.96); }
+  50% { opacity: 0.7; transform: scale(1.06); }
+}
+.tg-brand-glow {
+  background: radial-gradient(circle, rgba(228, 169, 59, 0.55), rgba(47, 158, 150, 0.25) 55%, transparent 72%);
+  filter: blur(10px);
+  animation: tg-glow 3.2s ease-in-out infinite;
+}
+.tg-brand-thinking .tg-brand-glow {
+  animation-duration: 1.2s;
+}
+@keyframes tg-brand-pulse {
+  0% { transform: scale(0.9); opacity: 0.6; border-color: var(--tg-gold); }
+  100% { transform: scale(1.7); opacity: 0; border-color: var(--tg-teal); }
+}
+.tg-brand-pulse {
+  border: 1.5px solid var(--tg-gold);
+  animation: tg-brand-pulse 2.6s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+.tg-brand-logo {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+.tg-brand-thinking .tg-brand-logo {
+  animation: tg-breathe 1.4s ease-in-out infinite;
+}
+
+/* Matnli logotip — gradient sekin "oqadi" */
+@keyframes tg-wordmark-flow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+.tg-wordmark {
+  animation: tg-wordmark-flow 8s linear infinite;
+}
+
+/* Boshlanish ekrani — harakatlanuvchi "aurora" fon */
+@keyframes tg-aurora {
+  0% { transform: translate3d(-4%, -2%, 0) scale(1); }
+  50% { transform: translate3d(4%, 3%, 0) scale(1.08); }
+  100% { transform: translate3d(-4%, -2%, 0) scale(1); }
+}
+.tg-aurora {
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  background:
+    radial-gradient(40% 35% at 25% 30%, rgba(228, 169, 59, 0.16), transparent 70%),
+    radial-gradient(35% 30% at 75% 25%, rgba(47, 158, 150, 0.16), transparent 70%),
+    radial-gradient(45% 40% at 55% 80%, rgba(228, 169, 59, 0.08), transparent 70%);
+  filter: blur(30px);
+  animation: tg-aurora 18s ease-in-out infinite;
+}
+[data-theme='light'] .tg-aurora {
+  background:
+    radial-gradient(40% 35% at 25% 30%, rgba(228, 169, 59, 0.28), transparent 70%),
+    radial-gradient(35% 30% at 75% 25%, rgba(47, 158, 150, 0.26), transparent 70%),
+    radial-gradient(45% 40% at 55% 80%, rgba(228, 169, 59, 0.14), transparent 70%);
+}
+
+/* Splash — logotip ichidan "yorug'lik" o'tadi */
+@keyframes tg-shine {
+  0% { transform: translateX(-120%) skewX(-18deg); }
+  100% { transform: translateX(220%) skewX(-18deg); }
+}
+.tg-shine::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  width: 40%;
+  animation: tg-shine 1.6s ease-in-out 0.4s infinite;
+}
+
+/* E'lon banneri (admin'dan boshqariladi) */
+.tg-announce {
+  background: linear-gradient(90deg, rgba(228, 169, 59, 0.14), rgba(47, 158, 150, 0.14));
+  border-bottom: 1px solid var(--tg-border);
+}
+.tg-announce-warn {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.14), rgba(228, 169, 59, 0.12));
+}
+.tg-announce-success {
+  background: linear-gradient(90deg, rgba(47, 158, 150, 0.16), rgba(158, 206, 106, 0.12));
+}
+
+/* Fikrlash (thinking) bloki */
+.tg-thinking {
+  border-left: 2px solid var(--tg-gold);
+  background: var(--tg-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-brand-ring, .tg-brand-orbit, .tg-brand-glow, .tg-brand-pulse, .tg-brand-logo, .tg-wordmark, .tg-aurora, .tg-shine::after {
     animation: none !important;
   }
 }

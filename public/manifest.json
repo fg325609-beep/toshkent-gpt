@@ -1,18 +1,33 @@
 {
-  "name": "ToshkentGPT",
+  "name": "ToshkentGPT — koʻcha tilida gaplashuvchi AI",
   "short_name": "ToshkentGPT",
-  "description": "Koʻcha tilida gaplashuvchi AI yordamchi",
-  "start_url": "/",
+  "description": "Oʻzbek tilida, samimiy uslubda gaplashadigan sunʼiy intellekt: savol-javob, rasm, kod, video va hujjat tahlili, podkastdan klip, ovozli suhbat.",
+  "id": "/",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
   "orientation": "portrait",
-  "background_color": "#0D0F14",
-  "theme_color": "#0D0F14",
+  "lang": "uz",
+  "dir": "ltr",
+  "categories": ["productivity", "utilities", "education"],
+  "background_color": "#0A0A0B",
+  "theme_color": "#0A0A0B",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-384.png", "sizes": "384x384", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
-  ]
+  ],
+  "shortcuts": [
+    { "name": "Yangi suhbat", "short_name": "Suhbat", "url": "/?source=pwa", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Podkast → klip", "short_name": "Klip", "url": "/klip?source=pwa", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Tariflar", "short_name": "Tariflar", "url": "/tariflar?source=pwa", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ],
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  }
 }

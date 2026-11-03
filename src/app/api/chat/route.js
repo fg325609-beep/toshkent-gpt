@@ -10,38 +10,86 @@ import {
   PRESENTATION_COMMAND_RE,
   SEARCH_COMMAND_RE,
   CODE_COMMAND_RE,
+  DEFAULT_MODEL,
+  modelForPlan,
+  thinkingLevelForPlan,
   buildSystemInstruction,
-  extractFacts,
-  generateImageViaPollinations,
-  generateImageViaGemini,
-  translatePromptToEnglish,
+  extractHiddenTags,
+  generateImage,
   generatePresentation,
   performWebSearch,
   executeCode,
+  appendDocumentText,
+  withRetry,
+  friendlyAiError,
+  autoToolsForPlan,
+  STEP_STATUS_TEXT,
 } from '../_lib/ai-generation';
 import { generateImageViaLocal } from '../_lib/local-image';
+import { extractDocumentText } from '../_lib/document-extract';
+import { resolveAttachments, defaultPromptFor } from '../_lib/attachments';
+import { recordEvent } from '../_lib/stats';
+import { getSettings } from '../_lib/settings';
  
-// Uzun javoblar Vercel'ning standart vaqt chegarasida kesilib qolmasligi uchun.
-export const maxDuration = 60;
+// Uzun javoblar va katta video tahlili (Gemini Files API) Vercel'ning standart
+// vaqt chegarasida kesilib qolmasligi uchun. Fluid compute'da Hobby rejasi ham
+// 300 soniyaga ruxsat beradi.
+export const maxDuration = 300;
  
-// Gemini API kaliti va model nomi FAQAT .env.local fayldan o'qiladi — kodga yozilmaydi,
+// Gemini API kaliti FAQAT .env.local fayldan o'qiladi — kodga yozilmaydi,
 // shunda GitHub'ga push qilsang ham kaliting ochilib qolmaydi (.env* .gitignore'da).
+// Model tanlash va "o'ylash darajasi" endi _lib/ai-generation.js'da — Telegram
+// bot bilan umumiy.
 const API_KEY = process.env.GEMINI_API_KEY;
-const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
  
-function modelForPlan(plan) {
-  // Har bir tarif uchun alohida model belgilanishi mumkin (masalan GEMINI_MODEL_MAX).
-  // Agar sozlanmagan bo'lsa, standart modelga tushadi — hech narsa buzilmaydi.
-  return (plan?.modelEnv && process.env[plan.modelEnv]) || DEFAULT_MODEL;
-}
- 
-// Lite tarifda TEZ javob berish ustuvor (kam "o'ylash"), yuqori tariflarda
-// sifat ustuvor. Foydalanuvchi "Chuqur o'ylash"ni yoqsa, tarifidan qat'i
-// nazar har doim 'high' ishlatiladi.
-function thinkingLevelForPlan(planId) {
-  if (planId === 'lite') return 'low';
-  if (planId === 'pro') return 'medium';
-  return 'high'; // max, promax
+// ============================================================
+// SSE (server-sent events) oqimi uchun umumiy yordamchi.
+//
+// Ilgari har bir buyruq (rasm, qidiruv, kod, taqdimot, oddiy chat) o'zining
+// ReadableStream'ini qo'lda yasar edi. Bundan tashqari, foydalanuvchi
+// "To'xtatish"ni bossa (yoki sahifani yopsa) controller.enqueue()
+// "Invalid state" xatosi berar, bu xato catch'da yana send() chaqirib,
+// ikkinchi marta portlardi. Endi: yopilgan oqimga yozish jimgina
+// e'tiborsiz qoldiriladi va oqim bekor qilinganini `isClosed()` orqali
+// bilib, Gemini'dan kelayotgan oqimni ham to'xtatamiz (token tejaladi).
+// ============================================================
+function sseResponse(run) {
+  const encoder = new TextEncoder();
+  let closed = false;
+
+  const readable = new ReadableStream({
+    async start(controller) {
+      function send(obj) {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        } catch {
+          closed = true;
+        }
+      }
+      try {
+        await run({ send, isClosed: () => closed });
+      } finally {
+        if (!closed) {
+          closed = true;
+          try {
+            controller.close();
+          } catch {}
+        }
+      }
+    },
+    cancel() {
+      closed = true;
+    },
+  });
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  });
 }
  
 function formatTime(iso) {
@@ -78,9 +126,12 @@ export async function POST(req) {
 }
  
 async function handleChatRequest(req) {
-  const { text, image, pdf, previousInteractionId, profile: clientProfile, deepThink } = await req.json();
+  const body = await req.json();
+  const { text, image, pdf, document, previousInteractionId, profile: clientProfile, deepThink } = body;
+  // Yangi usul: bir nechta biriktirma (inline base64 yoki Vercel Blob URL).
+  const files = Array.isArray(body.files) ? body.files.slice(0, 10) : [];
  
-  if (!text && !image && !pdf) {
+  if (!text && !image && !pdf && !document && !files.length) {
     return Response.json({ response: 'Matn, rasm yoki fayl kiritilmadi!' }, { status: 400 });
   }
   if (text && text.length > 8000) {
@@ -103,6 +154,15 @@ async function handleChatRequest(req) {
     return Response.json({ response: 'Avval Google orqali tizimga kiring.' }, { status: 401 });
   }
  
+  // Admin paneldan boshqariladigan sozlamalar (texnik ishlar, vositalar va h.k.).
+  const settings = await getSettings().catch(() => null);
+  if (settings?.maintenance?.enabled) {
+    return Response.json(
+      { response: settings.maintenance.message || 'Texnik ishlar olib borilmoqda — birozdan keyin qayting.' },
+      { status: 503 }
+    );
+  }
+
   // Admin tomonidan bloklangan foydalanuvchi — hech qanday xabar qabul qilinmaydi.
   if (await isUserBlocked(email)) {
     return Response.json(
@@ -185,6 +245,7 @@ async function handleChatRequest(req) {
   }
  
   const ai = new GoogleGenAI({ apiKey: API_KEY });
+  const startedAt = Date.now();
  
   function applyUsage() {
     let planPayload;
@@ -209,98 +270,41 @@ async function handleChatRequest(req) {
   // butunlay boshqacha (streaming yo'q) bo'lgani uchun alohida yo'l sifatida ajratilgan.
   const imageCommandMatch = text?.trim().match(IMAGE_COMMAND_RE);
   if (imageCommandMatch) {
+    if (settings?.features?.imageGen === false) {
+      return Response.json({ response: 'Rasm chizish vaqtincha o\'chirilgan — birozdan keyin urinib ko\'ring.' }, { status: 503 });
+    }
     const imagePrompt = imageCommandMatch[1].trim();
-    const encoder = new TextEncoder();
- 
-    const readable = new ReadableStream({
-      async start(controller) {
-        function send(obj) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-        }
- 
-        try {
-          send({ type: 'chunk', text: 'Rasm chizilmoqda, biroz kuting... 🎨' });
- 
-          // Max va Pro Max obunachilari uchun — ular allaqachon pullik tarifda,
-          // shuning uchun ularga sifatliroq (lekin bizga xarajat qiladigan)
-          // Gemini rasm modeli beriladi. Qolgan hamma (Lite/Pro) uchun —
-          // bepul Pollinations.ai ishlatiladi.
-          const isPremiumImagePlan = ['max', 'promax'].includes(effectivePlan.plan?.id);
- 
-          // MUHIM: rasm modellari o'zbek tilini tushunmaydi — shuning uchun
-          // tavsifni avval inglizchaga o'giramiz. Aynan shu sabab ilgari
-          // "suv parisi" so'ralganda mashina chizilar edi.
-          const TR_MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
-          const englishPrompt = await translatePromptToEnglish(ai, TR_MODEL, imagePrompt);
- 
-          let result;
-          let geminiErrorText = null;
- 
-          // 1-navbat: o'z kompyuteringizdagi worker (IMAGE_PROVIDER=local bo'lsa).
-          // Qiymatni tozalab tekshiramiz — .env faylida ko'rinmas bo'sh joy yoki
-          // katta harf bo'lsa ham ishlashi uchun.
-          const imageProvider = (process.env.IMAGE_PROVIDER || '').trim().toLowerCase();
-          console.log('[RASM] IMAGE_PROVIDER =', JSON.stringify(process.env.IMAGE_PROVIDER), '-> tozalangan:', imageProvider);
- 
-          if (imageProvider === 'local') {
-            try {
-              send({ type: 'chunk', text: 'Kompyuteringizda chizilmoqda... 💻\n\n' });
-              result = await generateImageViaLocal(englishPrompt);
-            } catch (localError) {
-              geminiErrorText = localError?.message || String(localError);
-              console.error('[RASM] Lokal worker xatosi:', geminiErrorText);
-            }
-          } else {
-            // Bu sozlama haqidagi ma'lumot FAQAT serverda qoladi — foydalanuvchiga
-            // texnik tafsilot ko'rsatilmaydi, u shunchaki rasmni kutadi.
-            console.log('[RASM] Lokal rejim o\'chiq — keyingi provayderga o\'tilyapti.');
-          }
- 
-          // 2-navbat: Gemini (Max/Pro Max uchun).
-          if (!result && isPremiumImagePlan) {
-            try {
-              result = await generateImageViaGemini(ai, englishPrompt);
-           } catch (geminiError) {
-              // Xato matni faqat server loglariga yoziladi (Vercel → Logs).
-              geminiErrorText = geminiError?.message || String(geminiError);
-              console.error('[RASM] Gemini xatosi:', geminiErrorText);
-            }
-          }
-          if (!result) {
-            if (geminiErrorText) {
-              // Foydalanuvchi texnik xatoni emas, oddiy tushunarli xabarni ko'radi.
-              send({ type: 'chunk', text: 'Biroz kuting, boshqa usul bilan chizyapman...\n\n' });
-            }
-            result = await generateImageViaPollinations(englishPrompt);
-          }
- 
-          const dataUrl = `data:${result.mimeType};base64,${result.base64}`;
- 
-          send({
-            type: 'done',
-            text: 'Mana, tayyor! 🖼️',
-            image: { dataUrl, mimeType: result.mimeType },
-            plan: applyUsage(),
-          });
-       } catch (error) {
-          // Haqiqiy sabab serverda qoladi, foydalanuvchi oddiy xabar oladi.
-          console.error('Rasm yaratishda xato:', error);
-          send({
-            type: 'error',
-            message: "Rasm chizib bo'lmadi — birozdan keyin qayta urinib ko'ring.",
-          });
-        } finally {
-          controller.close();
-        }
-      },
-    });
- 
-    return new Response(readable, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-      },
+    return sseResponse(async ({ send }) => {
+      try {
+        send({ type: 'chunk', text: 'Rasm chizilmoqda, biroz kuting... 🎨' });
+
+        // Max va Pro Max obunachilari uchun — ular allaqachon pullik tarifda,
+        // shuning uchun ularga sifatliroq (lekin bizga xarajat qiladigan)
+        // Gemini rasm modeli beriladi. Qolgan hamma (Lite/Pro) uchun —
+        // bepul Pollinations.ai ishlatiladi. Tarjima + provayderlar tartibi
+        // endi generateImage() ichida (Telegram bilan umumiy).
+        const result = await generateImage(ai, {
+          prompt: imagePrompt,
+          model: effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL,
+          premium: ['max', 'promax'].includes(effectivePlan.plan?.id),
+          localProvider: generateImageViaLocal,
+          onProgress: (msg) => send({ type: 'chunk', text: `${msg}\n\n` }),
+        });
+
+        const dataUrl = `data:${result.mimeType};base64,${result.base64}`;
+        send({
+          type: 'done',
+          text: 'Mana, tayyor! 🖼️',
+          image: { dataUrl, mimeType: result.mimeType },
+          plan: applyUsage(),
+        });
+        recordEvent({ channel: 'web', kind: 'rasm', email, ok: true, ms: Date.now() - startedAt });
+      } catch (error) {
+        // Haqiqiy sabab serverda qoladi, foydalanuvchi oddiy xabar oladi.
+        console.error('Rasm yaratishda xato:', error);
+        recordEvent({ channel: 'web', kind: 'rasm', email, ok: false, ms: Date.now() - startedAt, error: error?.message });
+        send({ type: 'error', message: "Rasm chizib bo'lmadi — birozdan keyin qayta urinib ko'ring." });
+      }
     });
   }
  
@@ -308,37 +312,19 @@ async function handleChatRequest(req) {
   const searchMatch = text?.trim().match(SEARCH_COMMAND_RE);
   if (searchMatch) {
     const query = searchMatch[1].trim();
-    const encoder = new TextEncoder();
- 
-    const readable = new ReadableStream({
-      async start(controller) {
-        function send(obj) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-        }
- 
-        try {
-          send({ type: 'chunk', text: 'Internetdan qidirilmoqda... 🔍' });
- 
-          const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
-          const systemInstruction = buildSystemInstruction(profile, profile?.til);
-          const answer = await performWebSearch(ai, MODEL, query, systemInstruction);
- 
-          send({ type: 'done', text: answer, plan: applyUsage() });
-        } catch (error) {
-          console.error('Qidiruvda xato:', error);
-          send({ type: 'error', message: error.message || 'Qidiruvda xatolik yuz berdi.' });
-        } finally {
-          controller.close();
-        }
-      },
-    });
- 
-    return new Response(readable, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-      },
+    return sseResponse(async ({ send }) => {
+      try {
+        send({ type: 'chunk', text: 'Internetdan qidirilmoqda... 🔍' });
+        const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
+        const systemInstruction = buildSystemInstruction(profile, profile?.til);
+        const answer = await withRetry((m) => performWebSearch(ai, m, query, systemInstruction), { model: MODEL });
+        send({ type: 'done', text: answer, plan: applyUsage() });
+        recordEvent({ channel: 'web', kind: 'qidir', email, ok: true, ms: Date.now() - startedAt, model: MODEL });
+      } catch (error) {
+        console.error('Qidiruvda xato:', error);
+        recordEvent({ channel: 'web', kind: 'qidir', email, ok: false, ms: Date.now() - startedAt, model: MODEL, error: error?.message });
+        send({ type: 'error', message: friendlyAiError(error) });
+      }
     });
   }
  
@@ -347,44 +333,27 @@ async function handleChatRequest(req) {
   const codeMatch = text?.trim().match(CODE_COMMAND_RE);
   if (codeMatch) {
     const task = codeMatch[1].trim();
-    const encoder = new TextEncoder();
- 
-    const readable = new ReadableStream({
-      async start(controller) {
-        function send(obj) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+    return sseResponse(async ({ send }) => {
+      try {
+        send({ type: 'chunk', text: 'Kod yozilib, ishga tushirilmoqda... 💻' });
+        const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
+        const systemInstruction = buildSystemInstruction(profile, profile?.til);
+        const { text: resultText, code, imageBase64 } = await withRetry((m) => executeCode(ai, m, task, systemInstruction), { model: MODEL });
+
+        let finalText = resultText || '';
+        if (code) finalText += `\n\n\`\`\`python\n${code}\n\`\`\``;
+
+        const payload = { type: 'done', text: finalText || 'Bajarildi.', plan: applyUsage() };
+        if (imageBase64) {
+          payload.image = { dataUrl: `data:image/png;base64,${imageBase64}`, mimeType: 'image/png' };
         }
- 
-        try {
-          send({ type: 'chunk', text: 'Kod yozilib, ishga tushirilmoqda... 💻' });
- 
-          const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
-          const systemInstruction = buildSystemInstruction(profile, profile?.til);
-          const { text: resultText, code, imageBase64 } = await executeCode(ai, MODEL, task, systemInstruction);
- 
-          let finalText = resultText || '';
-          if (code) finalText += `\n\n\`\`\`python\n${code}\n\`\`\``;
- 
-          const payload = { type: 'done', text: finalText || 'Bajarildi.', plan: applyUsage() };
-          if (imageBase64) {
-            payload.image = { dataUrl: `data:image/png;base64,${imageBase64}`, mimeType: 'image/png' };
-          }
-          send(payload);
-        } catch (error) {
-          console.error('Kod ishga tushirishda xato:', error);
-          send({ type: 'error', message: error.message || 'Kod ishga tushirishda xatolik yuz berdi.' });
-        } finally {
-          controller.close();
-        }
-      },
-    });
- 
-    return new Response(readable, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-      },
+        send(payload);
+        recordEvent({ channel: 'web', kind: 'kod', email, ok: true, ms: Date.now() - startedAt, model: MODEL });
+      } catch (error) {
+        console.error('Kod ishga tushirishda xato:', error);
+        recordEvent({ channel: 'web', kind: 'kod', email, ok: false, ms: Date.now() - startedAt, model: MODEL, error: error?.message });
+        send({ type: 'error', message: friendlyAiError(error) });
+      }
     });
   }
  
@@ -392,49 +361,31 @@ async function handleChatRequest(req) {
   const presentationMatch = text?.trim().match(PRESENTATION_COMMAND_RE);
   if (presentationMatch) {
     const topic = presentationMatch[2].trim();
-    const encoder = new TextEncoder();
- 
-    const readable = new ReadableStream({
-      async start(controller) {
-        function send(obj) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-        }
- 
-        try {
-          send({ type: 'chunk', text: 'Prezentatsiya tayyorlanmoqda, biroz kuting... 📊' });
- 
-          const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
-          const { base64, filename, title, slideCount } = await generatePresentation(ai, MODEL, topic);
- 
-          send({
-            type: 'done',
-            text: `Mana, tayyor! 📊 "${title}" — ${slideCount} slayd.`,
-            file: {
-              base64,
-              filename,
-              mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            },
-            plan: applyUsage(),
-          });
-        } catch (error) {
-          console.error('Prezentatsiya yaratishda xato:', error);
-          send({ type: 'error', message: error.message || 'Prezentatsiya yaratishda xatolik yuz berdi.' });
-        } finally {
-          controller.close();
-        }
-      },
-    });
- 
-    return new Response(readable, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-      },
+    return sseResponse(async ({ send }) => {
+      try {
+        send({ type: 'chunk', text: 'Prezentatsiya tayyorlanmoqda, biroz kuting... 📊' });
+        const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
+        const { base64, filename, title, slideCount } = await withRetry((m) => generatePresentation(ai, m, topic), { model: MODEL });
+        send({
+          type: 'done',
+          text: `Mana, tayyor! 📊 "${title}" — ${slideCount} slayd.`,
+          file: {
+            base64,
+            filename,
+            mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          },
+          plan: applyUsage(),
+        });
+        recordEvent({ channel: 'web', kind: 'prezentatsiya', email, ok: true, ms: Date.now() - startedAt, model: MODEL });
+      } catch (error) {
+        console.error('Prezentatsiya yaratishda xato:', error);
+        recordEvent({ channel: 'web', kind: 'prezentatsiya', email, ok: false, ms: Date.now() - startedAt, model: MODEL, error: error?.message });
+        send({ type: 'error', message: friendlyAiError(error) });
+      }
     });
   }
  
-  // PDF biriktirilgan bo'lsa — matnini shu yerda (serverda) chiqarib olamiz,
+  // PDF biriktirilgan bo'lsa (eski usul) — matnini shu yerda (serverda) chiqarib olamiz,
   // chunki brauzerda PDF o'qish murakkab va katta kutubxona talab qiladi.
   let pdfSection = '';
   if (pdf?.data) {
@@ -449,106 +400,178 @@ async function handleChatRequest(req) {
     }
   }
  
-  const textWithPdf = `${text || (pdf?.data ? 'Bu PDF faylda nima yozilganini tushuntirib ber.' : '')}${pdfSection}`;
+  let textWithPdf = `${text || (pdf?.data ? 'Bu PDF faylda nima yozilganini tushuntirib ber.' : '')}${pdfSection}`;
  
-  const input = image?.data
-    ? [
-        { type: 'text', text: textWithPdf || 'Bu rasmda nima borligini aytib ber.' },
-        { type: 'image', data: image.data, mime_type: image.mimeType },
-      ]
-    : textWithPdf;
+  // Word (.docx) va Excel (.xlsx/.xls) fayllar (eski usul) — "Sohaviy bilim" uchun
+  // yozilgan extractDocumentText() shu yerda ham ishlatiladi.
+  if (document?.data) {
+    let extracted = '';
+    try {
+      extracted = await extractDocumentText(document.data, document.name);
+    } catch (err) {
+      console.error("Hujjatni o'qishda xato:", err);
+    }
+    textWithPdf = appendDocumentText(textWithPdf, document.name, extracted);
+  }
+ 
+  // Yangi usul: bir nechta biriktirma — rasm, video, audio, PDF, Word, Excel,
+  // matn. Katta fayllar Blob'dan o'qilib, Gemini Files API orqali beriladi.
+  // Jarayon holati foydalanuvchiga "status" hodisalari bilan ko'rsatiladi.
+  const legacyImagePart = image?.data ? [{ type: 'image', data: image.data, mime_type: image.mimeType }] : [];
+  if (!textWithPdf && (files.length || image?.data)) {
+    textWithPdf = files.length ? defaultPromptFor(files) : 'Bu rasmda nima borligini aytib ber.';
+  }
  
   const systemInstruction = buildSystemInstruction(profile, profile?.til);
   const MODEL = effectivePlan.plan ? modelForPlan(effectivePlan.plan) : DEFAULT_MODEL;
-  const thinkingLevel = deepThink ? 'high' : thinkingLevelForPlan(effectivePlan.plan?.id);
+  const thinkingLevel = thinkingLevelForPlan(effectivePlan.plan?.id, Boolean(deepThink));
  
-  async function openStream(prevId) {
+  // Avtomatik vositalar (internet qidiruv, havola o'qish) va fikrlash
+  // qisqacha mazmuni — zamonaviy AI chatlardagi kabi.
+  const tools = autoToolsForPlan(effectivePlan.plan?.id, settings);
+  const wantThinkingSummary = settings?.features?.thinkingSummaries !== false && (deepThink || thinkingLevel !== 'low');
+ 
+  async function openStream(prevId, input, model = MODEL, withTools = true) {
     return ai.interactions.create({
-      model: MODEL,
+      model,
       input,
       system_instruction: systemInstruction,
       previous_interaction_id: prevId || undefined,
       stream: true,
+      tools: withTools ? tools : undefined,
       generation_config: {
-        max_output_tokens: 4096,
+        max_output_tokens: 8192,
         thinking_level: thinkingLevel,
+        thinking_summaries: wantThinkingSummary ? 'auto' : undefined,
       },
     });
   }
  
-  const encoder = new TextEncoder();
   // Oxirgi ~100 belgini har doim "xavfsiz zaxira"da ushlab turamiz — chunki yashirin
   // [[ESLA: ...]] belgisi javobning aynan oxirida chiqadi va foydalanuvchiga hech qachon
   // ko'rsatilmasligi kerak. Stream tugagach, to'liq tozalangan matn bilan almashtiramiz.
-  const SAFE_TAIL = 100;
+  // Endi [[TAKLIF: ...]] qatorlari ham bor — zaxira kattaroq.
+  const SAFE_TAIL = 260;
  
-  const readable = new ReadableStream({
-    async start(controller) {
-      function send(obj) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+  return sseResponse(async ({ send, isClosed }) => {
+    let fullText = '';
+    let emittedUpTo = 0;
+    let interactionId = null;
+ 
+    try {
+      // Biriktirmalarni tayyorlash (katta fayl bo'lsa vaqt oladi — holat yuboriladi).
+      let mediaParts = [...legacyImagePart];
+      let finalText = textWithPdf;
+      if (files.length) {
+        const resolved = await resolveAttachments(ai, files, {
+          onStatus: (msg) => send({ type: 'status', text: msg }),
+        });
+        mediaParts = [...mediaParts, ...resolved.parts];
+        finalText = `${finalText}${resolved.textSection}`;
       }
+      const input = mediaParts.length
+        ? [{ type: 'text', text: finalText || 'Bu faylda nima borligini aytib ber.' }, ...mediaParts]
+        : finalText;
  
-      let fullText = '';
-      let emittedUpTo = 0;
-      let interactionId = null;
+      send({ type: 'status', text: deepThink ? "Chuqur o'ylayapman..." : "O'ylayapman..." });
  
-      try {
-        let stream;
-        try {
-          stream = await openStream(previousInteractionId);
-        } catch (err) {
-          if (previousInteractionId) {
-            stream = await openStream(null);
-          } else {
+      // Oqimni ochish: 1) oldingi suhbat ipi bilan, 2) ip eskirgan bo'lsa usiz,
+      // 3) vositalar xato bersa ularsiz, 4) model topilmasa standart model.
+      const stream = await withRetry(
+        async (model) => {
+          try {
+            return await openStream(previousInteractionId, input, model, true);
+          } catch (err) {
+            const msg = String(err?.message || err);
+            if (previousInteractionId && /interaction|previous|not found|expired|404/i.test(msg)) {
+              return openStream(null, input, model, true);
+            }
+            if (tools && /tool|google_search|url_context|not supported|400|INVALID_ARGUMENT/i.test(msg)) {
+              console.warn('[AI] vositalar bilan ochilmadi, ularsiz qayta:', msg);
+              return openStream(previousInteractionId, input, model, false);
+            }
             throw err;
           }
-        }
+        },
+        { model: MODEL, onRetry: () => send({ type: 'status', text: 'Server band, qayta urinyapman...' }) }
+      );
  
-        for await (const event of stream) {
-          // MUHIM: Interactions API'da chat ID'si event.interaction.id ichida keladi,
-          // event.id emas — shu xato tufayli suhbat tarixi hech qachon davom etmagan.
-          if (event?.interaction?.id) interactionId = event.interaction.id;
-          if (event?.event_type === 'step.delta' && event?.delta?.type === 'text') {
-            fullText += event.delta.text;
-            const safeLen = Math.max(0, fullText.length - SAFE_TAIL);
-            if (safeLen > emittedUpTo) {
-              send({ type: 'chunk', text: fullText.slice(emittedUpTo, safeLen) });
-              emittedUpTo = safeLen;
+      const sources = [];
+      const seenUrls = new Set();
+      let thinkingText = '';
+ 
+      for await (const event of stream) {
+        // Foydalanuvchi "To'xtatish"ni bosgan bo'lsa — Gemini oqimini ham
+        // davom ettirmaymiz (behuda token sarflanmasin).
+        if (isClosed()) break;
+        // MUHIM: Interactions API'da chat ID'si event.interaction.id ichida keladi,
+        // event.id emas — shu xato tufayli suhbat tarixi hech qachon davom etmagan.
+        if (event?.interaction?.id) interactionId = event.interaction.id;
+ 
+        if (event?.event_type === 'step.start') {
+          const t = event.step?.type;
+          if (STEP_STATUS_TEXT[t]) send({ type: 'status', text: STEP_STATUS_TEXT[t] });
+          continue;
+        }
+        if (event?.event_type !== 'step.delta') continue;
+        const d = event.delta;
+        if (!d) continue;
+ 
+        if (d.type === 'text') {
+          fullText += d.text;
+          const safeLen = Math.max(0, fullText.length - SAFE_TAIL);
+          if (safeLen > emittedUpTo) {
+            send({ type: 'chunk', text: fullText.slice(emittedUpTo, safeLen) });
+            emittedUpTo = safeLen;
+          }
+        } else if (d.type === 'thought_summary') {
+          const t = d.content?.text || '';
+          if (t) {
+            thinkingText += t;
+            send({ type: 'thinking', text: t });
+          }
+        } else if (d.type === 'text_annotation_delta') {
+          for (const a of d.annotations || []) {
+            if (a?.type === 'url_citation' && a.url && !seenUrls.has(a.url)) {
+              seenUrls.add(a.url);
+              sources.push({ url: a.url, title: a.title || '' });
             }
           }
         }
- 
-        const { facts, cleanText } = extractFacts(fullText);
- 
-        // Yangi bilib olingan faktlar (ism va h.k.) bor bo'lsa — Redis'ga ham yozib
-        // qo'yamiz, shunda foydalanuvchi boshqa qurilmadan kirsa ham eslab qoladi.
-        // Xato bo'lsa ham (masalan Redis ulanmagan) javobni to'sib qo'ymaymiz.
-        if (email && Object.keys(facts).length) {
-          mergeUserProfile(email, facts).catch((err) => console.error('Profil saqlashda xato:', err));
-        }
- 
-        send({
-          type: 'done',
-          text: cleanText || 'Javob kelmadi.',
-          interactionId,
-          facts: Object.keys(facts).length ? facts : undefined,
-          plan: applyUsage(),
-        });
-      } catch (error) {
-        console.error('API Error:', error);
-        send({ type: 'error', message: error.message || 'Server xatosi' });
-      } finally {
-        controller.close();
       }
-    },
-  });
  
-  return new Response(readable, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-    },
+      if (isClosed()) return;
+ 
+      const { facts, followups, cleanText } = extractHiddenTags(fullText);
+      if (!cleanText && !thinkingText) throw new Error('Model bo\'sh javob qaytardi');
+ 
+      // Yangi bilib olingan faktlar (ism va h.k.) bor bo'lsa — Redis'ga ham yozib
+      // qo'yamiz, shunda foydalanuvchi boshqa qurilmadan kirsa ham eslab qoladi.
+      // Xato bo'lsa ham (masalan Redis ulanmagan) javobni to'sib qo'ymaymiz.
+      if (email && Object.keys(facts).length) {
+        mergeUserProfile(email, facts).catch((err) => console.error('Profil saqlashda xato:', err));
+      }
+ 
+      send({
+        type: 'done',
+        text: cleanText || 'Javob kelmadi.',
+        interactionId,
+        facts: Object.keys(facts).length ? facts : undefined,
+        followups: followups.length ? followups : undefined,
+        sources: sources.length ? sources : undefined,
+        plan: applyUsage(),
+      });
+      recordEvent({ channel: 'web', kind: 'chat', email, ok: true, ms: Date.now() - startedAt, model: MODEL });
+    } catch (error) {
+      console.error('API Error:', error);
+      recordEvent({ channel: 'web', kind: 'chat', email, ok: false, ms: Date.now() - startedAt, model: MODEL, error: error?.message });
+      // Qisman javob kelgan bo'lsa — uni yo'qotmaymiz, xato o'rniga saqlab qolamiz.
+      if (fullText.trim()) {
+        const { cleanText } = extractHiddenTags(fullText);
+        send({ type: 'done', text: `${cleanText}\n\n_(javob to'liq kelmadi — qayta yozdirib ko'ring)_`, interactionId, plan: applyUsage() });
+      } else {
+        send({ type: 'error', message: friendlyAiError(error) });
+      }
+    }
   });
 }
- 

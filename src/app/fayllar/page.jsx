@@ -34,6 +34,21 @@ export default function FayllarPage() {
     const collected = [];
     for (const s of sessions) {
       for (const msg of s.messages || []) {
+        // v2.3: foydalanuvchi biriktirmalari (bir nechta) — rasm va video
+        // ko'rinishi bo'lsa shu yerda ham chiqadi.
+        for (const att of msg.attachments || []) {
+          if (att.previewUrl && (att.category === 'image' || att.category === 'video')) {
+            collected.push({
+              id: `${msg.id}-${att.id}`,
+              kind: att.category === 'video' ? 'file' : 'image',
+              source: 'Yuklangan',
+              name: att.name || 'fayl',
+              dataUrl: att.previewUrl,
+              sessionTitle: s.title,
+              time: msg.time,
+            });
+          }
+        }
         if (msg.image?.dataUrl) {
           collected.push({
             id: msg.id,

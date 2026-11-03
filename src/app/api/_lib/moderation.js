@@ -31,17 +31,22 @@ function blockedKey(email) {
   return `tg:moderation:blocked:${email}`;
 }
  
-/** Matnda taqiqlangan so'z bor-yo'qligini tekshiradi (so'z chegarasi bilan, harf katta-kichikligi muhim emas). */
+// Har bir so'z uchun "SO'Z BOSHIDA turibdimi" tekshiruvi. Ilgari oddiy
+// `includes` ishlatilgan edi — natijada "100 рубля" ("бля" ichida), "mebal"
+// kabi oddiy so'zlar ham nomaqbul deb hisoblanib, uch martadan keyin
+// foydalanuvchi BEGUNOH bloklanib qolishi mumkin edi. Endi taqiqlangan so'z
+// faqat so'z boshida kelganda (masalan "blyad", "blyadi", "suka!") ushlanadi;
+// so'z o'rtasida ("рубля") — yo'q. \p{L}/\p{N} — har qanday alifbo
+// (lotin, kirill) uchun ishlaydi.
+const BLOCKED_RE = new RegExp(
+  `(?<![\\p{L}\\p{N}])(?:${BLOCKED_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
+  'iu'
+);
+ 
+/** Matnda taqiqlangan so'z bor-yo'qligini tekshiradi (so'z boshida, harf katta-kichikligi muhim emas). */
 export function containsProfanity(text) {
   if (!text) return false;
-  const lower = text.toLowerCase();
-  return BLOCKED_WORDS.some((word) => {
-    // Kirill/lotin, o'zbek harflari uchun oddiy "so'z ichida bormi" tekshiruvi —
-    // to'liq so'z chegarasi tekshiruvi util alifbolar aralashganda ishonchsiz
-    // bo'lgani uchun, shunchaki "ichida bormi" ishlatiladi (ozgina qattiqroq,
-    // lekin xato o'tkazib yubormaslik muhimroq).
-    return lower.includes(word);
-  });
+  return BLOCKED_RE.test(String(text).toLowerCase());
 }
  
 export async function isUserBlocked(email) {
