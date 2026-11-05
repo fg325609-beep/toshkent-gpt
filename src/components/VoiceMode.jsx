@@ -49,6 +49,10 @@ export default function VoiceMode( { open, onClose, onExchange, onPlanUpdate } )
     const mutedRef = useRef( false );
     const closedRef = useRef( false );
     const sendingRef = useRef( false );
+    // startListening pastroqda e'lon qilinadi; sendTurn ichidan uni ref orqali
+    // chaqiramiz — shunda "e'lon qilinishidan oldin ishlatilgan" (TDZ) xatosi
+    // ham, eskirgan (stale) closure muammosi ham bo'lmaydi.
+    const startListeningRef = useRef( null );
 
     useEffect( () => {
         mutedRef.current = muted;
@@ -86,7 +90,7 @@ export default function VoiceMode( { open, onClose, onExchange, onPlanUpdate } )
                 // Jimlik/shovqin — hech narsa aytilmagan, yana eshitishga qaytamiz.
                 if ( data?.empty ) {
                     sendingRef.current = false;
-                    startListening();
+                    startListeningRef.current?.();
                     return;
                 }
 
@@ -103,19 +107,19 @@ export default function VoiceMode( { open, onClose, onExchange, onPlanUpdate } )
                     audioRef.current = audio;
                     audio.onended = () => {
                         sendingRef.current = false;
-                        if ( !closedRef.current ) startListening();
+                        if ( !closedRef.current ) startListeningRef.current?.();
                     };
                     audio.onerror = () => {
                         sendingRef.current = false;
-                        if ( !closedRef.current ) startListening();
+                        if ( !closedRef.current ) startListeningRef.current?.();
                     };
                     await audio.play().catch( () => {
                         sendingRef.current = false;
-                        if ( !closedRef.current ) startListening();
+                        if ( !closedRef.current ) startListeningRef.current?.();
                     } );
                 } else {
                     sendingRef.current = false;
-                    startListening();
+                    startListeningRef.current?.();
                 }
             } catch ( err ) {
                 if ( closedRef.current ) return;
@@ -124,8 +128,6 @@ export default function VoiceMode( { open, onClose, onExchange, onPlanUpdate } )
                 sendingRef.current = false;
             }
         },
-        // startListening pastroqda e'lon qilingan, lekin ref orqali barqaror ishlaydi
-        // eslint-disable-next-line react-hooks/exhaustive-deps
         [ onExchange, onPlanUpdate ]
     );
 
@@ -162,7 +164,7 @@ export default function VoiceMode( { open, onClose, onExchange, onPlanUpdate } )
             if ( closedRef.current ) return;
             if ( blob.size < 2000 ) {
                 // juda qisqa — shunchaki yana eshitamiz
-                startListening();
+                startListeningRef.current?.();
                 return;
             }
             sendTurn( blob );
@@ -210,6 +212,10 @@ export default function VoiceMode( { open, onClose, onExchange, onPlanUpdate } )
         };
         rafRef.current = requestAnimationFrame( tick );
     }, [ sendTurn ] );
+
+    useEffect( () => {
+        startListeningRef.current = startListening;
+    }, [ startListening ] );
 
     // --- Ochilganda mikrofonni yoqish, yopilganda hammasini to'xtatish ---
     useEffect( () => {

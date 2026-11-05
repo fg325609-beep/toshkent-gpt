@@ -1,6 +1,8 @@
 import { auth } from '@/auth';
 import { getUserState, resolveEffectivePlan, getUsageWindow, recordUsage, saveUserState } from '../_lib/user-plan';
 import { submitVideoJob, checkVideoJob } from '@/lib/ai-video';
+import { getSettings } from '../_lib/settings';
+import { recordEvent } from '../_lib/stats';
  
 // Har bir video HAQIQIY pul turadi (~$0.30-0.50), shuning uchun bu funksiya
 // FAQAT pullik yuqori tariflarda ochiq — aks holda bepul foydalanuvchilar
@@ -12,6 +14,11 @@ export async function POST(req) {
   const email = session?.user?.email;
   if (!email) {
     return Response.json({ error: 'Avval tizimga kiring.' }, { status: 401 });
+  }
+ 
+  const settings = await getSettings().catch(() => null);
+  if (settings?.features?.videoAi === false) {
+    return Response.json({ error: 'AI video vaqtincha o\'chirilgan.' }, { status: 503 });
   }
  
   const state = await getUserState(email);
@@ -56,9 +63,11 @@ export async function POST(req) {
     recordUsage(state, undefined);
     saveUserState(email, state).catch((err) => console.error('Limit saqlashda xato:', err));
  
+    recordEvent({ channel: 'web', kind: 'video', email, ok: true });
     return Response.json({ requestId, model });
   } catch (err) {
     console.error('AI video so\'rovida xato:', err);
+    recordEvent({ channel: 'web', kind: 'video', email, ok: false, error: err?.message });
     return Response.json({ error: err.message || 'Xatolik yuz berdi.' }, { status: 500 });
   }
 }

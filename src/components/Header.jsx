@@ -2,6 +2,7 @@
  
 import Link from 'next/link';
 import { Menu, PanelLeftOpen, Plus, User } from 'lucide-react';
+import BrandMark, { BrandWordmark } from './BrandMark';
  
 // ============================================================
 // Yuqoridagi tor panel.
@@ -12,7 +13,7 @@ import { Menu, PanelLeftOpen, Plus, User } from 'lucide-react';
 // soddalashtirildi: hamburger (faqat telefonda), logo, "Yangi suhbat" va
 // profil rasmi.
 // ============================================================
-export default function Header({ user, railOpen = true, onOpenHistory, onNewChat }) {
+export default function Header({ user, railOpen = true, onOpenHistory, onNewChat, thinking = false }) {
   return (
     <header className="relative z-20 flex items-center justify-between border-b border-[var(--tg-border)] bg-[var(--tg-bg)]/80 px-4 py-3 backdrop-blur sm:px-6">
       <div className="flex items-center gap-2.5">
@@ -30,38 +31,21 @@ export default function Header({ user, railOpen = true, onOpenHistory, onNewChat
           <PanelLeftOpen size={17} className="hidden lg:block" />
         </button>
  
-        <div className="relative hidden h-10 w-10 flex-shrink-0 items-center justify-center sm:flex">
-          <div
-            className="tg-logo-ring absolute inset-0 rounded-full"
-            style={{
-              background: 'conic-gradient(from 0deg, #2F9E96, #E4A93B, #2F9E96)',
-              mask: 'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px))',
-              WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px))',
-            }}
-          />
-          <span className="tg-logo-pulse absolute inset-0 rounded-full border border-[#2F9E96]/50" />
-          <img src="/icons/logo-header.png" alt="ToshkentGPT" className="relative h-8 w-8 rounded-full" />
+        <div className="hidden sm:flex">
+          <BrandMark size={40} variant="orbit" thinking={thinking} />
         </div>
- 
+
         <div className="min-w-0">
-          <h1
-            className="truncate text-[15px] font-extrabold tracking-tight sm:text-base"
-            style={{
-              fontFamily: 'var(--font-display)',
-              backgroundImage: 'linear-gradient(90deg, var(--tg-logo-grad-start), var(--tg-logo-grad-end))',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-            }}
-          >
-            ToshkentGPT
+          <h1 className="truncate leading-tight">
+            <BrandWordmark size={16} />
           </h1>
           <p className="flex items-center gap-1.5 text-[11px] text-[var(--tg-text-3)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#2F9E96] shadow-[0_0_0_3px_rgba(47,158,150,0.2)]" />
-            <span className="hidden sm:inline">koʻcha tilida gaplashadi</span>
+            <span className={`h-1.5 w-1.5 rounded-full ${thinking ? 'bg-[var(--tg-gold)] shadow-[0_0_0_3px_rgba(228,169,59,0.25)]' : 'bg-[var(--tg-teal)] shadow-[0_0_0_3px_rgba(47,158,150,0.2)]'}`} />
+            <span className="hidden sm:inline">{thinking ? 'oʻylayapti…' : 'koʻcha tilida gaplashadi'}</span>
           </p>
         </div>
       </div>
- 
+
       <div className="flex items-center gap-1.5">
         <button
           onClick={onNewChat}

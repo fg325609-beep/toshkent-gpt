@@ -8,7 +8,9 @@ import { PLANS } from './plans';
 import { storageKey, loadJSON, saveJSON } from '@/lib/storage';
 import { blankWelcome, stampNow, newSession, freshSession, sessionTitle } from '@/lib/session';
 import { stripMarkdown } from '@/lib/format';
-import { fileToDataUrl, fileToText } from '@/lib/files';
+import { fileToDataUrl } from '@/lib/files';
+import { prepareAttachment, toApiAttachment } from '@/lib/upload';
+import { classifyFile } from '@/lib/upload-limits';
 import { showToast } from '@/lib/toast';
 import { APP_VERSION, CHANGELOG } from '@/lib/version';
 import { isPushSupported, subscribeToPush, getCurrentPushSubscription } from '@/lib/push';
@@ -24,6 +26,7 @@ import StartScreen from '@/components/StartScreen';
 import VoiceMode from '@/components/VoiceMode';
 import PlansModal from '@/components/PlansModal';
 import WhatsNewModal from '@/components/WhatsNewModal';
+import BrandMark from '@/components/BrandMark';
 import { useTheme } from './use-theme';
  
 // ============================================================
@@ -46,7 +49,7 @@ export default function ToshkentGPTGate() {
   if (status === 'loading') {
     return (
       <div className="flex h-dvh items-center justify-center bg-[var(--tg-bg)]">
-        <img src="/icons/logo-header.png" alt="ToshkentGPT" className="tg-splash-logo h-16 w-16" />
+        <BrandMark size={72} variant="orbit" thinking />
       </div>
     );
   }
@@ -87,7 +90,13 @@ function ToshkentGPT({ user }) {
   const [ttsLoadingId, setTtsLoadingId] = useState(null);
   const [audioCache, setAudioCache] = useState({}); // { [msgId]: base64Mp3 } — qayta so'ramaslik uchun
   const [deepThink, setDeepThink] = useState(false);
-  const [attachment, setAttachment] = useState(null);
+  // Biriktirmalar — bir nechta bo'lishi mumkin (rasm, video, audio, hujjat).
+  const [attachments, setAttachments] = useState([]);
+  // AI yozayotgandagi holat satri ("O'ylayapman…", "Video yuklanmoqda…").
+  const [assistantStatus, setAssistantStatus] = useState('');
+  // Faylni sahifaga sudrab tashlash (drag & drop) qatlami.
+  const [dragActive, setDragActive] = useState(false);
+  const dragDepthRef = useRef(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   // Katta ekrandagi doimiy yon panel ochiqmi? (Yopish tugmasi bilan boshqariladi.)
   const [railOpen, setRailOpen] = useState(true);
@@ -95,6 +104,9 @@ function ToshkentGPT({ user }) {
   const [hero, setHero] = useState(null);
   // Jonli (onlayn) ovozli suhbat oynasi.
   const [voiceOpen, setVoiceOpen] = useState(false);
+  // Admin paneldan boshqariladigan e'lon va sozlamalar (/api/settings).
+  const [appSettings, setAppSettings] = useState(null);
+  const [announceClosed, setAnnounceClosed] = useState(false);
  
   // --- Ro'yxatdan o'tishdagi bosqichli tanishuv (ism-familiya so'rash) ---
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -221,6 +233,30 @@ function ToshkentGPT({ user }) {
       })
       .catch(() => {});
  
+    // Telefonda "Ulashish → ToshkentGPT" (PWA share_target) orqali kelgan matn/havola
+    // yozish qatoriga tushadi — foydalanuvchi faqat "yuborish"ni bosadi.
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const shared = [sp.get('title'), sp.get('text'), sp.get('url')].filter(Boolean).join('\n').trim();
+      if (shared) {
+        setInput(shared.slice(0, 4000));
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    } catch {}
+ 
+    // Serverdagi ilova sozlamalari: e'lon banneri, texnik ishlar, funksiyalar.
+    fetch('/api/settings')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setAppSettings(data);
+        try {
+          const key = data.announcement?.text ? `tg-announce-closed:${data.announcement.text.slice(0, 40)}` : null;
+          if (key && localStorage.getItem(key)) setAnnounceClosed(true);
+        } catch {}
+      })
+      .catch(() => {});
+ 
     // Admin panelida yozilgan sarlavha (matn, rang, shrift).
     fetch('/api/hero')
       .then((r) => (r.ok ? r.json() : null))
@@ -289,10 +325,31 @@ function ToshkentGPT({ user }) {
     setSpeechSupported(supported);
   }, []);
  
+  // Klaviatura: Esc — javobni to'xtatish, Ctrl/Cmd+Shift+O — yangi suhbat.
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape' && abortRef.current) {
+        abortRef.current.abort();
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'O' || e.key === 'o')) {
+        e.preventDefault();
+        handleNewChat();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.ism]);
+
   function updateMessages(updater) {
     setSession((prev) => {
       const messages = updater(prev.messages);
-      return { ...prev, messages, title: sessionTitle(messages), updatedAt: new Date().toISOString() };
+      return {
+        ...prev,
+        messages,
+        // Foydalanuvchi o'zi nom bergan bo'lsa (customTitle), uni o'zgartirmaymiz.
+        title: prev.customTitle || prev.autoTitled ? prev.title : sessionTitle(messages),
+        updatedAt: new Date().toISOString(),
+      };
     });
   }
  
@@ -365,61 +422,55 @@ function ToshkentGPT({ user }) {
  
   async function handleSendText(overrideText) {
     const text = (overrideText ?? input).trim();
-    if ((!text && !attachment) || isLoading) return;
- 
-    const currentAttachment = attachment;
-    const previousInteractionId = session.lastInteractionId;
- 
-    setInput('');
-    setAttachment(null);
- 
-    // Serverga yuboriladigan yakuniy matn/rasm shu yerda tayyorlanadi — bir xil
-    // qiymatlar keyinroq "qayta generatsiya qilish" (regenerate) uchun ham
-    // xabar ichida saqlab qo'yiladi (apiText/apiImage), aks holda regenerate
-    // vaqtida fayl matnini yoki rasmni qayta qurib bo'lmaydi.
-    let finalText = text;
-    let imagePayload;
-    let pdfPayload;
- 
-    if (currentAttachment?.kind === 'image') {
-      imagePayload = {
-        mimeType: currentAttachment.mimeType,
-        data: currentAttachment.dataUrl.split(',')[1],
-      };
-      if (!finalText) finalText = 'Bu rasmda nima borligini aytib ber.';
-    } else if (currentAttachment?.kind === 'pdf') {
-      pdfPayload = { data: currentAttachment.dataUrl.split(',')[1], name: currentAttachment.name };
-      if (!finalText) finalText = 'Bu PDF faylda nima yozilganini tushuntirib ber.';
-    } else if (currentAttachment?.kind === 'text') {
-      finalText = `${finalText}\n\n[Fayl: ${currentAttachment.name}]\n${currentAttachment.text.slice(0, 6000)}`;
-    } else if (currentAttachment?.kind === 'video') {
-      finalText = `${finalText}\n\n(Foydalanuvchi "${currentAttachment.name}" nomli video biriktirdi, lekin men hozircha video formatini koʻra olmayman — faqat nomini bilaman.)`;
-    } else if (currentAttachment?.kind === 'file') {
-      finalText = `${finalText}\n\n(Foydalanuvchi "${currentAttachment.name}" faylini biriktirdi, lekin bu turdagi faylni oʻqiy olmayman — faqat nomini bilaman.)`;
+    if (isLoading) return;
+    if (attachments.some((a) => a.status === 'uploading')) {
+      showToast('Fayl yuklanishini kuting.', 'error');
+      return;
     }
- 
+    const currentAttachments = attachments.filter((a) => a.status !== 'uploading');
+    if (!text && !currentAttachments.length) return;
+
+    const previousInteractionId = session.lastInteractionId;
+
+    setInput('');
+    setAttachments([]);
+
+    // Serverga yuboriladigan ko'rinish (regenerate uchun xabar ichida ham saqlanadi).
+    const apiFiles = currentAttachments.map(toApiAttachment);
+    // Ko'rsatish uchun: kichik rasmlar data: URL sifatida (sahifa yangilansa ham
+    // ko'rinadi), kattalari — vaqtinchalik ko'rinish havolasi.
+    const displayAttachments = currentAttachments.map((a) => ({
+      id: a.id,
+      category: a.category,
+      name: a.name,
+      size: a.size,
+      previewUrl:
+        a.category === 'image' && a.kind === 'inline' && a.size <= 1_000_000
+          ? `data:${a.mimeType};base64,${a.data}`
+          : a.category === 'image' || a.category === 'video'
+            ? a.previewUrl || a.url || null
+            : null,
+    }));
+
     addMessage('user', text, {
-      image: currentAttachment?.kind === 'image' ? { dataUrl: currentAttachment.dataUrl, name: currentAttachment.name } : null,
-      fileNote:
-        currentAttachment && currentAttachment.kind !== 'image'
-          ? `📎 ${currentAttachment.name}`
-          : null,
-      apiText: finalText,
-      apiImage: imagePayload || null,
-      apiPdf: pdfPayload || null,
+      attachments: displayAttachments,
+      apiText: text,
+      // localStorage sig'imi (~5 MB) uchun: katta inline (base64) fayllar xabar
+      // ichida saqlanmaydi — "qayta yozdirish" ularni qayta yubormaydi.
+      apiFiles: apiFiles.filter((f) => f.kind === 'blob' || (f.data || '').length < 400_000),
       prevInteractionId: previousInteractionId,
     });
- 
+
     // Bot javobi kelayotganda to'ldirib boriladigan bo'sh xabar — "so'z-so'z" effekti shundan.
     const assistantId = crypto.randomUUID();
     updateMessages((prev) => [
       ...prev,
       { id: assistantId, role: 'assistant', content: '', time: new Date().toISOString(), prevInteractionId: previousInteractionId },
     ]);
- 
-    await streamAssistantReply({ assistantId, finalText, imagePayload, pdfPayload, previousInteractionId, deepThink });
+
+    await streamAssistantReply({ assistantId, finalText: text, files: apiFiles, previousInteractionId, deepThink });
   }
- 
+
   // "Qayta generatsiya qilish" (regenerate) tugmasi bosilganda: oldingi
   // foydalanuvchi xabari (matn/rasm) o'sha holicha qayta yuboriladi, lekin
   // YANGI foydalanuvchi pufakchasi qo'shilmaydi — faqat AI javobi (assistantMsg)
@@ -437,8 +488,11 @@ function ToshkentGPT({ user }) {
     await streamAssistantReply({
       assistantId: assistantMsg.id,
       finalText: userMsg.apiText ?? userMsg.content,
+      files: userMsg.apiFiles || [],
+      // Eski (2.2 gacha) xabarlar uchun — ularda alohida maydonlar bor edi.
       imagePayload: userMsg.apiImage || undefined,
       pdfPayload: userMsg.apiPdf || undefined,
+      documentPayload: userMsg.apiDocument || undefined,
       previousInteractionId: assistantMsg.prevInteractionId ?? userMsg.prevInteractionId ?? null,
       deepThink,
     });
@@ -456,7 +510,7 @@ function ToshkentGPT({ user }) {
     updateMessages((prev) => prev.slice(0, idx));
     setSession((prev) => ({ ...prev, lastInteractionId: userMsg.prevInteractionId ?? null }));
     setInput(userMsg.content);
-    setAttachment(null);
+    setAttachments([]);
     textareaRef.current?.focus();
   }
  
@@ -476,12 +530,41 @@ function ToshkentGPT({ user }) {
     }
   }
  
+  // Suhbat nomini AI bilan qisqartirish — faqat birinchi almashinuvdan keyin,
+  // bir marta. Xato bo'lsa — eski (birinchi xabarning boshi) nom qolaveradi.
+  function maybeAutoTitle(userText, assistantText) {
+    setSession((prev) => {
+      if (prev.customTitle || prev.autoTitled) return prev;
+      const userCount = prev.messages.filter((m) => m.role === 'user').length;
+      if (userCount !== 1) return prev;
+      const sessionId = prev.id;
+      fetch('/api/title', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: (userText || '').slice(0, 1200), assistant: (assistantText || '').slice(0, 1200) }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data?.title) return;
+          setSession((cur) => (cur.id === sessionId && !cur.customTitle ? { ...cur, title: data.title, autoTitled: true } : cur));
+          setSessions((list) => {
+            const next = list.map((x) => (x.id === sessionId && !x.customTitle ? { ...x, title: data.title, autoTitled: true } : x));
+            saveJSON(SESSIONS_KEY, next);
+            return next;
+          });
+        })
+        .catch(() => {});
+      return { ...prev, autoTitled: true };
+    });
+  }
+ 
   // /api/chat'ga so'rov yuborish + streaming javobni o'qish — bu qism
   // handleSendText (yangi xabar) va regenerateMessage (qayta generatsiya)
   // ikkalasi uchun ham umumiy, shuning uchun alohida funksiyaga chiqarilgan.
-  async function streamAssistantReply({ assistantId, finalText, imagePayload, pdfPayload, previousInteractionId, deepThink }) {
+  async function streamAssistantReply({ assistantId, finalText, files, imagePayload, pdfPayload, documentPayload, previousInteractionId, deepThink }) {
     setIsLoading(true);
     setErrorBanner(null);
+    setAssistantStatus(files?.length ? 'Fayllar tayyorlanmoqda...' : '');
  
     try {
       const controller = new AbortController();
@@ -490,7 +573,16 @@ function ToshkentGPT({ user }) {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: finalText, image: imagePayload, pdf: pdfPayload, previousInteractionId, profile, deepThink }),
+        body: JSON.stringify({
+          text: finalText,
+          files: files || [],
+          image: imagePayload,
+          pdf: pdfPayload,
+          document: documentPayload,
+          previousInteractionId,
+          profile,
+          deepThink,
+        }),
         signal: controller.signal,
       });
  
@@ -531,16 +623,32 @@ function ToshkentGPT({ user }) {
             continue;
           }
  
-          if (evt.type === 'chunk') {
+          if (evt.type === 'status') {
+            setAssistantStatus(evt.text || '');
+          } else if (evt.type === 'thinking') {
+            // Fikrlash qisqacha mazmuni — xabar ichida yig'ib boriladi.
+            const piece = evt.text || '';
+            updateMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, thinking: `${m.thinking || ''}${piece}` } : m)));
+          } else if (evt.type === 'chunk') {
+            if (!streamedText) setAssistantStatus('');
             streamedText += evt.text;
             const snapshot = streamedText;
             updateMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: snapshot } : m)));
           } else if (evt.type === 'done') {
             const finalContent = evt.text;
+            setAssistantStatus('');
             updateMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, content: finalContent, image: evt.image || m.image, file: evt.file || m.file, time: new Date().toISOString() }
+                  ? {
+                      ...m,
+                      content: finalContent,
+                      image: evt.image || m.image,
+                      file: evt.file || m.file,
+                      followups: evt.followups || [],
+                      sources: evt.sources || [],
+                      time: new Date().toISOString(),
+                    }
                   : m
               )
             );
@@ -550,6 +658,9 @@ function ToshkentGPT({ user }) {
             if (evt.plan) {
               setPlanInfo(evt.plan);
             }
+            // Birinchi javobdan keyin suhbatga qisqa, ma'noli nom qo'yamiz
+            // (foydalanuvchi o'zi nom bergan bo'lsa — tegmaymiz).
+            maybeAutoTitle(finalText, finalContent);
             if (evt.facts && Object.keys(evt.facts).length) {
               setProfile((prev) => {
                 const next = { ...prev, ...evt.facts };
@@ -577,6 +688,7 @@ function ToshkentGPT({ user }) {
       }
     } finally {
       setIsLoading(false);
+      setAssistantStatus('');
       abortRef.current = null;
     }
   }
@@ -607,7 +719,7 @@ function ToshkentGPT({ user }) {
     setSession(fresh);
     setErrorBanner(null);
     setInput('');
-    setAttachment(null);
+    setAttachments([]);
     setHistoryOpen(false);
   }
  
@@ -619,7 +731,7 @@ function ToshkentGPT({ user }) {
   }
  
   function deleteSession(id, e) {
-    e.stopPropagation();
+    e?.stopPropagation?.();
     setSessions((prev) => {
       const next = prev.filter((s) => s.id !== id);
       saveJSON(SESSIONS_KEY, next);
@@ -628,6 +740,28 @@ function ToshkentGPT({ user }) {
     if (session.id === id) {
       setSession(freshSession(profile?.ism));
     }
+  }
+
+  // Suhbatni qadash (ro'yxat tepasida "Qadalgan" bo'limida turadi).
+  function togglePinSession(id) {
+    setSessions((prev) => {
+      const next = prev.map((s) => (s.id === id ? { ...s, pinned: !s.pinned } : s));
+      saveJSON(SESSIONS_KEY, next);
+      return next;
+    });
+    if (session.id === id) setSession((prev) => ({ ...prev, pinned: !prev.pinned }));
+  }
+
+  // Suhbatga o'z nomini berish — keyin avtomatik sarlavha uni bosib ketmaydi.
+  function renameSession(id, title) {
+    const clean = title.trim().slice(0, 80);
+    if (!clean) return;
+    setSessions((prev) => {
+      const next = prev.map((s) => (s.id === id ? { ...s, title: clean, customTitle: true } : s));
+      saveJSON(SESSIONS_KEY, next);
+      return next;
+    });
+    if (session.id === id) setSession((prev) => ({ ...prev, title: clean, customTitle: true }));
   }
  
   async function toggleListening() {
@@ -759,61 +893,93 @@ function ToshkentGPT({ user }) {
     setTimeout(() => setCopiedId(null), 1500);
   }
  
-  async function handleFile(file) {
-    if (!file) return;
- 
-    if (file.type.startsWith('image/')) {
-      const dataUrl = await fileToDataUrl(file);
-      setAttachment({ kind: 'image', mimeType: file.type, dataUrl, name: file.name });
-    } else if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
-      if (file.size > 15_000_000) {
-        setAttachment({ kind: 'file', name: file.name });
-        return;
-      }
-      const dataUrl = await fileToDataUrl(file);
-      setAttachment({ kind: 'pdf', dataUrl, name: file.name });
-    } else if (file.type.startsWith('video/')) {
-      if (file.size > 15_000_000) {
-        setAttachment({ kind: 'video', name: file.name });
-        return;
-      }
-      const dataUrl = await fileToDataUrl(file);
-      setAttachment({ kind: 'video', mimeType: file.type, dataUrl, name: file.name });
-    } else if (file.type.startsWith('text/') || /\.(txt|md|json|csv|log)$/i.test(file.name)) {
-      if (file.size > 300000) {
-        setAttachment({ kind: 'file', name: file.name });
-        return;
-      }
-      const text = await fileToText(file);
-      setAttachment({ kind: 'text', name: file.name, text });
-    } else {
-      setAttachment({ kind: 'file', name: file.name });
+  // Fayl(lar)ni biriktirish — bir nechta bo'lishi mumkin. Kichiklari darhol
+  // (base64), kattalari va video/audio Vercel Blob'ga yuklanadi (foiz bilan).
+  async function handleFiles(fileList) {
+    const list = Array.from(fileList || []).filter(Boolean);
+    if (!list.length) return;
+    if (attachments.length + list.length > 6) {
+      showToast("Bir xabarga ko'pi bilan 6 ta fayl biriktirish mumkin.", 'error');
+      return;
     }
+
+    await Promise.all(
+      list.map(async (file) => {
+        const tempId = crypto.randomUUID();
+        setAttachments((prev) => [
+          ...prev,
+          { id: tempId, status: 'uploading', progress: 0, name: file.name, category: classifyFile(file.name, file.type), size: file.size },
+        ]);
+        try {
+          const att = await prepareAttachment(file, {
+            email: userEmail,
+            onProgress: (pct) => setAttachments((prev) => prev.map((a) => (a.id === tempId ? { ...a, progress: pct } : a))),
+          });
+          setAttachments((prev) => prev.map((a) => (a.id === tempId ? { ...att, id: tempId } : a)));
+        } catch (err) {
+          setAttachments((prev) => prev.filter((a) => a.id !== tempId));
+          showToast(err.message || "Faylni biriktirib bo'lmadi.", 'error');
+        }
+      })
+    );
   }
- 
+
+  function removeAttachment(id) {
+    setAttachments((prev) => {
+      const target = prev.find((a) => a.id === id);
+      if (target?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((a) => a.id !== id);
+    });
+  }
+
   async function handleFilePicked(e) {
-    const file = e.target.files?.[0];
+    const files = e.target.files;
+    await handleFiles(files);
     e.target.value = '';
-    await handleFile(file);
   }
- 
-  // Matn maydoniga Ctrl+V bilan rasm yoki video joylashtirilsa — biriktirma
+
+  // Matn maydoniga Ctrl+V bilan rasm/fayl joylashtirilsa — biriktirma
   // sifatida qo'shamiz (oddiy matn joylashtirish odatdagidek ishlayveradi).
   function handlePaste(e) {
     const items = e.clipboardData?.items;
     if (!items) return;
+    const files = [];
     for (const item of items) {
       if (item.kind === 'file') {
         const file = item.getAsFile();
-        if (file && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
-          e.preventDefault();
-          handleFile(file);
-          return;
-        }
+        if (file) files.push(file);
       }
     }
+    if (files.length) {
+      e.preventDefault();
+      handleFiles(files);
+    }
   }
- 
+
+  // --- Sudrab tashlash (drag & drop) — butun sahifa ---
+  function onDragEnter(e) {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setDragActive(true);
+  }
+  function onDragOver(e) {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+  }
+  function onDragLeave(e) {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragActive(false);
+  }
+  function onDrop(e) {
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setDragActive(false);
+    handleFiles(e.dataTransfer.files);
+  }
+
   async function startTrial(planId) {
     setTrialStarting(true);
     try {
@@ -882,10 +1048,10 @@ function ToshkentGPT({ user }) {
   // ChatInput ikki joyda (o'rtada va pastda) ishlatilgani uchun proplari bir marta yig'iladi.
   const chatInputProps = {
     planInfo,
-    attachment,
-    onRemoveAttachment: () => setAttachment(null),
+    attachments,
+    onRemoveAttachment: removeAttachment,
     fileInputRef,
-    onFilePicked: handleFilePicked,
+    onFilesPicked: handleFilePicked,
     textareaRef,
     input,
     onInputChange: setInput,
@@ -907,8 +1073,23 @@ function ToshkentGPT({ user }) {
   const sortedSessions = [...sessions].sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
  
   return (
-    <div className={`relative flex h-dvh flex-col overflow-hidden bg-[var(--tg-bg)] text-[var(--tg-text-1)] ${railOpen ? 'lg:pl-[272px]' : ''}`}>
+    <div
+      className={`relative flex h-dvh flex-col overflow-hidden bg-[var(--tg-bg)] text-[var(--tg-text-1)] ${railOpen ? 'lg:pl-[272px]' : ''}`}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       {showSplash && <SplashScreen />}
+
+      {dragActive && (
+        <div className="tg-dropzone tg-fade-in pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
+          <div className="rounded-3xl border-2 border-dashed border-[var(--tg-gold)]/70 bg-[var(--tg-surface)]/80 px-10 py-8 text-center shadow-[var(--tg-shadow-lg)]">
+            <p className="text-lg font-semibold text-[var(--tg-text-1)]">Faylni shu yerga tashlang</p>
+            <p className="mt-1 text-sm text-[var(--tg-text-3)]">Rasm, video, audio, PDF, Word, Excel — GBʼlab fayl ham boʻladi</p>
+          </div>
+        </div>
+      )}
  
       {!showSplash && onboardingOpen && (
         <OnboardingFlow
@@ -930,12 +1111,49 @@ function ToshkentGPT({ user }) {
       <Header
         user={user}
         railOpen={railOpen}
+        thinking={isLoading}
         onOpenHistory={() => {
           setHistoryOpen(true);
           toggleRail(true);
         }}
         onNewChat={handleNewChat}
       />
+ 
+      {appSettings?.announcement?.text && !announceClosed && (
+        <div
+          className={`tg-announce tg-fade-in relative z-10 flex items-center gap-3 px-4 py-2 text-[12.5px] text-[var(--tg-text-1)] sm:px-6 ${
+            appSettings.announcement.level === 'warn' ? 'tg-announce-warn' : appSettings.announcement.level === 'success' ? 'tg-announce-success' : ''
+          }`}
+        >
+          <span className="flex-1">
+            {appSettings.announcement.text}
+            {appSettings.announcement.link && (
+              <a href={appSettings.announcement.link} className="ml-2 font-semibold underline underline-offset-2" target={/^https?:/.test(appSettings.announcement.link) ? '_blank' : undefined} rel="noopener noreferrer">
+                Batafsil →
+              </a>
+            )}
+          </span>
+          <button
+            type="button"
+            aria-label="Yopish"
+            onClick={() => {
+              setAnnounceClosed(true);
+              try {
+                localStorage.setItem(`tg-announce-closed:${appSettings.announcement.text.slice(0, 40)}`, '1');
+              } catch {}
+            }}
+            className="tg-iconbtn h-7 w-7"
+          >
+            ×
+          </button>
+        </div>
+      )}
+ 
+      {appSettings?.maintenance?.enabled && (
+        <div className="relative z-10 border-b border-red-500/20 bg-red-500/10 px-4 py-2 text-center text-xs text-red-300 sm:px-6">
+          🛠 {appSettings.maintenance.message || 'Texnik ishlar olib borilmoqda — ba\'zi funksiyalar vaqtincha ishlamasligi mumkin.'}
+        </div>
+      )}
  
       {errorBanner && (
         <div className="relative z-10 border-b border-red-500/20 bg-red-500/10 px-4 py-2 text-center text-xs text-red-300 sm:px-6">
@@ -946,7 +1164,7 @@ function ToshkentGPT({ user }) {
       {isStart ? (
         <StartScreen
           hero={hero}
-          greeting={session.messages[0]?.content}
+          firstName={profile?.ism}
           onCommandPick={handleCommandPick}
           onSuggestionClick={(q) => handleSendText(q)}
         >
@@ -958,6 +1176,7 @@ function ToshkentGPT({ user }) {
             messages={session.messages}
             userImage={user?.image}
             isLoading={isLoading}
+            assistantStatus={assistantStatus}
             copiedId={copiedId}
             speakingId={speakingId}
             ttsLoadingId={ttsLoadingId}
@@ -968,6 +1187,7 @@ function ToshkentGPT({ user }) {
             onRegenerate={regenerateMessage}
             onEdit={startEditMessage}
             onRate={rateMessage}
+            onFollowup={(q) => handleSendText(q)}
             scrollAnchorRef={scrollAnchorRef}
           />
  
@@ -983,6 +1203,8 @@ function ToshkentGPT({ user }) {
         onNewChat={handleNewChat}
         onOpenSession={openSession}
         onDeleteSession={deleteSession}
+        onTogglePin={togglePinSession}
+        onRenameSession={renameSession}
         railOpen={railOpen}
         onCollapse={() => toggleRail(false)}
         onCommandPick={handleCommandPick}

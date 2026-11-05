@@ -38,8 +38,12 @@ const IMKONIYATLAR = [
     matn: 'Mavzuni aytasiz — tayyor PowerPoint fayli qilib beradi.',
   },
   {
-    sarlavha: 'Hujjat oʻqish',
-    matn: 'PDF, Word va Excel fayllarni yuklab, ular haqida savol berishingiz mumkin.',
+    sarlavha: 'Hujjat, rasm, video va audio',
+    matn: 'PDF, Word, Excel, rasm, video va audio fayllarni (500 MB gacha) yuklab, ular haqida savol berishingiz mumkin — video va audioni ham koʻradi, eshitadi.',
+  },
+  {
+    sarlavha: 'Podkast → klip',
+    matn: 'Uzun podkastdan eng kuchli momentlarni topib, 2 daqiqagacha kesadi, soʻzma-soʻz subtitr va hook sarlavha qoʻyib, Reels/Shorts uchun tayyor qilib beradi.',
   },
   {
     sarlavha: 'Ovozli muloqot',

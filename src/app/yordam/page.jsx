@@ -26,7 +26,19 @@ const FAQ = [
   },
   {
     q: 'PDF yoki boshqa fayl yuklay olamanmi?',
-    a: 'Ha — 📎 tugmasi orqali PDF fayl yuklasangiz, bot uning mazmunini o\'qib, savollaringizga javob beradi.',
+    a: 'Ha — 📎 tugmasi orqali PDF, Word (.docx), Excel (.xlsx) yoki oddiy matnli fayl yuklasangiz, bot uning mazmunini o\'qib, savollaringizga javob beradi. Telegram botga ham rasm yoki fayl yuborsangiz bo\'ladi.',
+  },
+  {
+    q: 'Video yoki podkast yuklasam, bot uni koʻradimi?',
+    a: 'Ha — 📎 orqali video/audio tashlang (GB\'lab bo\'lsa ham), bot uni "ko\'radi" va "eshitadi": mazmunini aytib beradi, savolga javob beradi. Katta fayl avval yuklanadi (foiz ko\'rinadi), keyin AI qayta ishlaydi.',
+  },
+  {
+    q: 'Podkast → klip qanday ishlaydi?',
+    a: 'Chap paneldagi "Podkast → klip" (yoki Telegram\'da /klip <havola>) — uzun video yoki YouTube havolasini bering. AI eng kuchli momentlarni topadi, 2 daqiqagacha kesadi, pauzalarni olib tashlaydi, yuzga qarab 9:16 kadrlaydi, so\'zma-so\'z subtitr va sarlavha qo\'yadi. Max va Pro Max tariflarida.',
+  },
+  {
+    q: 'Bot internetdan o\'zi qidiradimi?',
+    a: 'Ha — Pro va undan yuqori tariflarda bot kerak bo\'lganda (kurs, yangilik, narx) o\'zi Google\'dan qidiradi va havolalarni o\'qiydi; javob ostida manbalar chiqadi. /qidir buyrug\'i bilan majburan qidirtirsangiz ham bo\'ladi.',
   },
   {
     q: '"Chuqur o\'ylash" nima?',

@@ -43,4 +43,17 @@ imageio-ffmpeg>=0.5.1
 fastapi>=0.115.0
 uvicorn>=0.30.0
 pydantic>=2.8.0
- 
+
+# ------------------------------------------------------------
+# PODKAST -> KLIP (Opus Clip uslubida): transkripsiya + YouTube'dan yuklab olish
+# faster-whisper torch'siz ishlaydi (CTranslate2), modelni birinchi safar o'zi yuklab oladi.
+# ------------------------------------------------------------
+faster-whisper>=1.0.0
+yt-dlp>=2025.1.1
+requests>=2.31.0
+
+# Smart crop (9:16 / 1:1 da kadrni yuzga qarab markazlash, ikki so'zlovchida ekranni
+# bo'lish) uchun — IXTIYORIY: bo'lmasa worker kadrni markazdan kesadi.
+# 4.x bilan birga Haar kaskadlari keladi (offline). 5.x da ular olib tashlangan —
+# bunda worker YuNet modelini (~230 KB) internetdan bir marta yuklab oladi.
+opencv-python-headless>=4.9,<5

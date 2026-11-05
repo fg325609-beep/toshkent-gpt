@@ -4,8 +4,9 @@ import { signIn } from 'next-auth/react';
 import Link from 'next/link';
 import { GoogleGlyph } from './icons/BrandIcons';
 import GirihPattern from './GirihPattern';
+import BrandMark from './BrandMark';
  
-const CAPABILITIES = ['Suhbatlashadi', 'Rasm chizadi', 'Kod yozadi', 'Hujjat oʻqiydi', 'Ovozda gapiradi'];
+const CAPABILITIES = ['Suhbatlashadi', 'Rasm chizadi', 'Kod yozadi', 'Video va hujjat oʻqiydi', 'Podkastdan klip kesadi', 'Ovozda gapiradi'];
  
 // ============================================================
 // Google bilan kirish ekrani — foydalanuvchi hali tasdiqlanmagan bo'lsa shu ko'rinadi.
@@ -15,11 +16,11 @@ const CAPABILITIES = ['Suhbatlashadi', 'Rasm chizadi', 'Kod yozadi', 'Hujjat oʻ
 export default function SignInScreen() {
   return (
     <div className="relative flex h-dvh flex-col items-center justify-center overflow-hidden bg-[var(--tg-bg)] px-6 text-center">
+      <div className="tg-aurora" />
       <GirihPattern />
       <div className="tg-pop-in relative z-10 flex flex-col items-center">
-        <div className="relative mb-1">
-          <div className="absolute inset-0 rounded-full opacity-40 blur-2xl" style={{ background: 'radial-gradient(circle, var(--tg-logo-grad-start), transparent 70%)' }} />
-          <img src="/icons/logo-header.png" alt="ToshkentGPT" className="tg-splash-logo relative h-20 w-20" />
+        <div className="tg-splash-logo relative mb-1">
+          <BrandMark size={104} variant="hero" />
         </div>
         <h1
           className="mt-5 text-2xl font-extrabold tracking-tight text-[var(--tg-text-1)]"
